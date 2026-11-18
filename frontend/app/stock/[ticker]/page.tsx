@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import PriceChart, { ChartType, SMA_VARS } from "@/components/PriceChart";
-import { AiResult, AiUsage, api, Bar, Detail, SMA_WINDOWS } from "@/lib/api";
+import { AiResult, AiUsage, api, Bar, Detail, Peers, SMA_WINDOWS } from "@/lib/api";
 import { arrow, daysUntil, dirOf, earningsLabel, fmtDate, fmtNum, fmtSigned, venue } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { useWatchlist } from "@/lib/watchlist";
@@ -42,6 +42,9 @@ export default function StockPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const [peers, setPeers] = useState<Peers | null>(null);
+  const [peersState, setPeersState] = useState<"loading" | "ok" | "none">("loading");
+
   const { token } = useAuth();
   const [ai, setAi] = useState<AiResult | null>(null);
   const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
@@ -62,6 +65,15 @@ export default function StockPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [ticker, range]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPeers(null); setPeersState("loading");
+    api.peers(ticker)
+      .then((p) => { if (!cancelled) { setPeers(p); setPeersState(p.rows.some((r) => r.kind === "peer") ? "ok" : "none"); } })
+      .catch(() => { if (!cancelled) setPeersState("none"); });
+    return () => { cancelled = true; };
+  }, [ticker]);
 
   const symbol = detail?.summary.ticker ?? ticker.toUpperCase();
   const watching = tickers.includes(symbol) || tickers.includes(ticker.toUpperCase());
@@ -218,6 +230,44 @@ export default function StockPage() {
             </div>
           )}
         </div>
+      </section>
+
+      <section className="section" aria-label="How it compares">
+        <h2>How it compares</h2>
+        {peersState === "loading" && <p className="skel">Finding similar companies&hellip;</p>}
+        {peersState === "none" && <p className="fine">No similar companies found for this one, so there is nothing to compare it with.</p>}
+        {peersState === "ok" && peers && (
+          <>
+            <p className="sub">{peers.industry ? `Same industry (${peers.industry}), plus the S&P 500.` : "Against similar companies and the S&P 500."}</p>
+            <div className="scroll">
+              <table className="ledger peers">
+                <thead>
+                  <tr><th className="l">Company</th><th>Price</th><th>Today</th><th>1 month</th></tr>
+                </thead>
+                <tbody>
+                  {peers.rows.map((r) => {
+                    const td = dirOf(r.day_pct), tm = dirOf(r.month_pct);
+                    return (
+                      <tr key={r.ticker} className={r.kind === "self" ? "me" : undefined}>
+                        <td className="l">
+                          {r.kind === "market" ? <b>S&amp;P 500</b> : <Link className="tk" href={`/stock/${encodeURIComponent(r.ticker)}`}>{r.ticker}</Link>}
+                          {r.kind === "self" && <span className="tag">This stock</span>}
+                          {r.kind === "peer" && r.name && <span className="muted pn">{r.name}</span>}
+                        </td>
+                        <td>{fmtNum(r.price)}</td>
+                        <td><span className={`pill ${td}`}>{arrow(td)} {fmtSigned(r.day_pct, 2, "%")}</span></td>
+                        <td><span className={`pill ${tm}`}>{arrow(tm)} {fmtSigned(r.month_pct, 2, "%")}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {peers.peer_median_day_pct != null && (
+              <p className="fine">Similar companies&rsquo; median move today: {fmtSigned(peers.peer_median_day_pct, 2, "%")}. If this stock moved far more than that, the cause is probably specific to it.</p>
+            )}
+          </>
+        )}
       </section>
 
       <section className="section" aria-label="Plain-English summary">

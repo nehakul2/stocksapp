@@ -159,6 +159,16 @@ def stock_detail(ticker: str, range: str = "6mo"):
     })
 
 
+@app.get("/api/stocks/{ticker}/peers")
+def stock_peers(ticker: str):
+    """The stock next to similar companies and the S&P 500: today and 1-month moves."""
+    ticker = core.normalize_ticker(ticker)
+    try:
+        return clean(core.compare_with_peers(ticker))
+    except Exception as e:
+        raise HTTPException(404, str(e))
+
+
 @app.get("/api/stocks/{ticker}/history")
 def stock_history(ticker: str, range: str = "6mo"):
     if range not in RANGES:
@@ -207,12 +217,16 @@ def ai_summary(
     explanation = core.explain_price_move(ticker, hist, news)
     if explanation["pct_change"] is None:
         raise HTTPException(422, "Not enough price history to summarize.")
+    try:
+        peer_note = core.peer_facts(core.compare_with_peers(ticker))
+    except Exception:
+        peer_note = ""  # peers are a bonus; the explanation still works without them
 
     counted = not own_key
     if counted:
         ai.reserve(db, user.id)  # only after the data checks, so bad requests don't cost quota
     try:
-        result = ai.explain_move(key, ticker, explanation, news)
+        result = ai.explain_move(key, ticker, explanation, news, peer_note)
     except Exception:
         ai.log.exception("AI call failed for %s", ticker)
         if counted:

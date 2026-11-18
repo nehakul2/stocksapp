@@ -517,6 +517,111 @@ def explain_price_move(ticker: str, hist_with_sma: pd.DataFrame, news_items: lis
     return result
 
 
+# Fallback peer groups, used only when Yahoo can't tell us a stock's industry peers.
+PEER_GROUPS = [
+    ["WMT", "TGT", "COST", "AMZN", "DG", "BJ"],
+    ["AAPL", "MSFT", "GOOGL", "META", "AMZN", "NVDA"],
+    ["NVDA", "AMD", "INTC", "AVGO", "QCOM", "TSM"],
+    ["JPM", "BAC", "WFC", "C", "GS", "MS"],
+    ["XOM", "CVX", "COP", "OXY", "SLB"],
+    ["JNJ", "PFE", "MRK", "LLY", "ABBV"],
+    ["KO", "PEP", "MDLZ", "PG", "KHC"],
+    ["TSLA", "F", "GM", "TM", "RIVN"],
+    ["BABA", "JD", "PDD", "BIDU", "AMZN"],
+    ["NFLX", "DIS", "WBD", "PARA", "CMCSA"],
+]
+MAX_PEERS = 4
+MARKET_TICKER = "^GSPC"
+
+
+@st_cache(86400)
+def find_peers(ticker: str) -> dict:
+    """Similar companies for a stock: Yahoo's top companies in the same industry,
+    or a small built-in group if Yahoo has nothing. Returns
+    {"sector", "industry", "peers": [{"ticker", "name"}], "source"}."""
+    t = ticker.upper()
+    sector = industry = ""
+    peers = []
+    try:
+        info = yf.Ticker(t).info or {}
+        sector = info.get("sector") or ""
+        industry = info.get("industry") or ""
+        key = info.get("industryKey")
+        if key:
+            top = yf.Industry(key).top_companies
+            if top is not None and len(top):
+                for sym, row in top.iterrows():
+                    sym = str(sym).upper()
+                    if sym != t and not sym.startswith("^"):
+                        peers.append({"ticker": sym, "name": str(row.get("name", "") or "")})
+    except Exception:
+        peers = []
+    source = "industry"
+    if not peers:
+        source = "builtin"
+        for group in PEER_GROUPS:
+            if t in group:
+                peers = [{"ticker": s, "name": ""} for s in group if s != t]
+                break
+    return {"sector": sector, "industry": industry, "peers": peers[:MAX_PEERS], "source": source if peers else "none"}
+
+
+def _moves(ticker: str) -> dict:
+    """Today's % change and the ~1-month (21 trading days) % change."""
+    hist = fetch_history(ticker, "3mo")
+    close = hist["Close"].dropna()
+    if len(close) < 2:
+        raise ValueError("not enough data")
+    last, prev = float(close.iloc[-1]), float(close.iloc[-2])
+    month = None
+    if len(close) >= 22 and float(close.iloc[-22]):
+        month = (last / float(close.iloc[-22]) - 1) * 100
+    return {"price": round(last, 2), "day_pct": (last / prev - 1) * 100 if prev else None, "month_pct": month}
+
+
+def compare_with_peers(ticker: str) -> dict:
+    """The stock, its peers and the S&P 500, side by side. Peers whose data can't
+    be loaded are left out rather than failing the whole table."""
+    t = ticker.upper()
+    found = find_peers(t)
+    rows = [{"ticker": t, "name": "", "kind": "self", **_moves(t)}]
+    for p in found["peers"]:
+        try:
+            rows.append({"ticker": p["ticker"], "name": p["name"], "kind": "peer", **_moves(p["ticker"])})
+        except Exception:
+            continue
+    try:
+        rows.append({"ticker": MARKET_TICKER, "name": "S&P 500", "kind": "market", **_moves(MARKET_TICKER)})
+    except Exception:
+        pass
+
+    peer_rows = [r for r in rows if r["kind"] == "peer"]
+    def median(key):
+        vals = sorted(r[key] for r in peer_rows if r[key] is not None)
+        if not vals:
+            return None
+        mid = len(vals) // 2
+        return vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
+    return {
+        "ticker": t,
+        "sector": found["sector"],
+        "industry": found["industry"],
+        "rows": rows,
+        "peer_median_day_pct": median("day_pct"),
+        "peer_median_month_pct": median("month_pct"),
+    }
+
+
+def peer_facts(comparison: dict) -> str:
+    """One short sentence of peer numbers for the AI prompt ('' if there are no peers)."""
+    peers = [r for r in comparison["rows"] if r["kind"] == "peer" and r["day_pct"] is not None]
+    if not peers:
+        return ""
+    listing = ", ".join(f"{r['ticker']} {r['day_pct']:+.2f}%" for r in peers)
+    med = comparison["peer_median_day_pct"]
+    return f"Similar companies today: {listing} (median {med:+.2f}%)."
+
+
 def generate_ai_move_summary(api_key: str, ticker: str, explanation: dict) -> str:
     """Turns the already-computed heuristic facts (price move, volume note,
     market comparison, earnings proximity, headlines) into a short
