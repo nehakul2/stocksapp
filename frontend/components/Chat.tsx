@@ -21,7 +21,7 @@ const SPEAK_KEY = "chat.speak";
 const STOCK_IDEAS = ["Why is it moving today?", "Is it near its 52-week low?", "How does it compare with similar companies?"];
 const HOME_IDEAS = ["Which of my stocks needs a look today?", "Create a watchlist called Energy with XOM and CVX", "What do my watchlists have in common?"];
 
-export default function Chat({ ticker }: { ticker?: string }) {
+export default function Chat({ ticker, active = true }: { ticker?: string; active?: boolean }) {
   const { token } = useAuth();
   const { runAction } = useWatchlist();
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -49,6 +49,13 @@ export default function Chat({ ticker }: { ticker?: string }) {
     try { setSpeak(localStorage.getItem(SPEAK_KEY) === "1"); } catch { /* ignore */ }
     return () => { try { window.speechSynthesis?.cancel(); rec.current?.stop(); } catch { /* ignore */ } };
   }, []);
+
+  // Closing the panel stops any talking or listening.
+  useEffect(() => {
+    if (active) return;
+    try { window.speechSynthesis?.cancel(); rec.current?.stop(); } catch { /* ignore */ }
+    setSpeaking(false);
+  }, [active]);
 
   // A new stock is a new conversation.
   useEffect(() => { setMsgs([]); setStatus({}); setErr(""); stopSpeaking(); }, [ticker]); // eslint-disable-line react-hooks/exhaustive-deps

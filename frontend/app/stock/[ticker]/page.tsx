@@ -3,7 +3,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import AlertsPanel from "@/components/AlertsPanel";
-import Chat from "@/components/Chat";
 import PriceChart, { ChartType, SMA_VARS } from "@/components/PriceChart";
 import { AiResult, AiUsage, api, Bar, Detail, Peers, SMA_WINDOWS } from "@/lib/api";
 import { arrow, daysUntil, dirOf, earningsLabel, fmtDate, fmtNum, fmtSigned, venue } from "@/lib/format";
@@ -320,11 +319,6 @@ export default function StockPage() {
             </>
           )}
         </div>
-      </section>
-
-      <section className="section" aria-label="Ask a question">
-        <h2>Ask about {symbol}</h2>
-        <Chat ticker={symbol} />
       </section>
 
       <section className="section" aria-label="Alerts">
