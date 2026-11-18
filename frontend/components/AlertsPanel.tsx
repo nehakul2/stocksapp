@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertRule, AlertType, api, SMA_WINDOWS } from "@/lib/api";
 import { useAlerts } from "@/lib/alerts";
 import { useAuth } from "@/lib/auth";
+import { fmtSince } from "@/lib/format";
 import { useWatchlist } from "@/lib/watchlist";
 
 const TYPES: { value: AlertType; label: string }[] = [
@@ -48,7 +49,7 @@ export default function AlertsPanel({ ticker }: { ticker: string }) {
     );
   }
 
-  const firingIds = new Set((check?.firing ?? []).map((f) => f.alert_id));
+  const firingSince = new Map((check?.firing ?? []).map((f) => [f.alert_id, f.since] as const));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -74,7 +75,7 @@ export default function AlertsPanel({ ticker }: { ticker: string }) {
         <ul className="rules">
           {rules.map((r) => (
             <li key={r.id}>
-              <span>{r.label}{firingIds.has(r.id) && <span className="tag warn" style={{ marginLeft: 10, marginTop: 0 }}>Firing now</span>}</span>
+              <span>{r.label}{firingSince.has(r.id) && <span className="tag warn" style={{ marginLeft: 10, marginTop: 0 }}>Firing{firingSince.get(r.id) ? ` since ${fmtSince(firingSince.get(r.id))}` : " now"}</span>}</span>
               <button className="rm" aria-label={`Remove alert: ${r.label}`} onClick={() => remove(r.id)}>{"✕"}</button>
             </li>
           ))}

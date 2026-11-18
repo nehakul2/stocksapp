@@ -139,3 +139,61 @@ def test_cycle_also_writes_history():
     h, _ = new_user(); setup_alert(h); turn_on(h)
     cycle()
     assert len(client.get("/api/alerts/history", headers=h).json()["events"]) == 1
+
+
+# ---- test email button
+def test_test_email_sends_to_the_signed_in_user():
+    h, email = new_user()
+    r = client.post("/api/settings/test-email", headers=h)
+    assert r.status_code == 200 and r.json() == {"sent_to": email}
+    assert len(sent_to(email)) == 1 and "test" in sent_to(email)[0][1].lower()
+
+
+def test_test_email_explains_each_way_it_can_fail(monkeypatch):
+    h, email = new_user()
+    assert client.post("/api/settings/test-email").status_code == 401
+    monkeypatch.setenv("EMAIL_ALLOWED_TO", "other@example.com")
+    r = client.post("/api/settings/test-email", headers=h)
+    assert r.status_code == 400 and "approved list" in r.json()["detail"] and email in r.json()["detail"]
+    monkeypatch.delenv("EMAIL_ALLOWED_TO")
+    monkeypatch.delenv("RESEND_API_KEY")
+    r = client.post("/api/settings/test-email", headers=h)
+    assert r.status_code == 400 and "RESEND_API_KEY" in r.json()["detail"]
+
+
+def test_test_email_passes_on_the_providers_message(monkeypatch):
+    h, _ = new_user()
+    def refuse(*a):
+        raise RuntimeError("Resend said no (403): You can only send testing emails to your own email address.")
+    monkeypatch.setattr(mailer, "send", refuse)
+    r = client.post("/api/settings/test-email", headers=h)
+    assert r.status_code == 502 and "only send testing emails to your own" in r.json()["detail"]
+
+
+def test_mailer_turns_resend_errors_into_readable_messages(monkeypatch):
+    import io, json, urllib.error, urllib.request
+    monkeypatch.undo()  # use the real mailer.send
+    monkeypatch.setenv("RESEND_API_KEY", "k")
+    err = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(json.dumps({"message": "Only your own address"}).encode()))
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(err))
+    with pytest.raises(RuntimeError, match=r"403.*Only your own address"):
+        mailer.send("a@b.c", "s", "t")
+
+
+def test_email_says_when_the_alert_was_first_seen(monkeypatch):
+    h, email = new_user(); setup_alert(h); turn_on(h)
+    monkeypatch.setenv("ALERT_TIMEZONE", "America/Los_Angeles")
+    cycle()
+    body = sent_to(email)[0][2]
+    assert "first seen " in body and ("PST" in body or "PDT" in body) and ("AM" in body or "PM" in body)
+
+
+def test_fmt_time_uses_the_configured_zone_and_falls_back_to_utc(monkeypatch):
+    from datetime import datetime, timezone
+    t = datetime(2026, 11, 18, 22, 31, tzinfo=timezone.utc)
+    monkeypatch.setenv("ALERT_TIMEZONE", "America/Los_Angeles")
+    assert notify.fmt_time(t) == "Nov 18, 2:31 PM PST"
+    monkeypatch.setenv("ALERT_TIMEZONE", "Not/AZone")
+    assert notify.fmt_time(t) == "Nov 18, 10:31 PM UTC"
+    monkeypatch.delenv("ALERT_TIMEZONE")
+    assert notify.fmt_time(t.replace(tzinfo=None)) == "Nov 18, 10:31 PM UTC"

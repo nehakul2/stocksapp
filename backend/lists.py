@@ -1,7 +1,7 @@
 """Named watchlists, per-watchlist alerts, alert history, and CSV export."""
 import csv
 import io
-from datetime import date
+from datetime import date, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -239,8 +239,17 @@ def evaluate_user_alerts(db: Session, user: User) -> dict:
             "alert_ids": [a.id for a in alerts], "unavailable_alert_ids": [a.id for a in alerts if hist_cache.get(a.ticker) is None]}
 
 
-def log_firings(db: Session, user: User, firing: list) -> None:
-    """Adds today's firings to the history, once per day per message."""
+def iso_utc(dt) -> str:
+    """A timestamp the website can show in the viewer's own time zone. Databases can hand back
+    times without a zone; ours are always UTC, so say so."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def log_firings(db: Session, user: User, firing: list) -> dict:
+    """Adds today's firings to the history, once per day per message. Returns when each one was
+    first noticed today, as {(watchlist name, message): datetime}."""
     today = date.today().isoformat()
     for f in firing:
         db.add(AlertEvent(user_id=user.id, watchlist_name=f["watchlist"], ticker=f["ticker"], day=today, message=f["message"][:200]))
@@ -248,6 +257,8 @@ def log_firings(db: Session, user: User, firing: list) -> None:
             db.commit()
         except IntegrityError:
             db.rollback()  # already logged today
+    rows = db.scalars(select(AlertEvent).where(AlertEvent.user_id == user.id, AlertEvent.day == today))
+    return {(e.watchlist_name, e.message): e.created_at for e in rows}
 
 
 @router.post("/api/alerts/check")
@@ -255,14 +266,18 @@ def check_alerts(user: User = Depends(auth.current_user), db: Session = Depends(
     """Checks every alert the user has, across all their watchlists, against the latest
     prices. New firings are added to the history once per day. Returns what is firing now."""
     result = evaluate_user_alerts(db, user)
-    log_firings(db, user, result["firing"])
+    since = log_firings(db, user, result["firing"])
+    for f in result["firing"]:
+        t = since.get((f["watchlist"], f["message"][:200]))
+        f["since"] = iso_utc(t) if t else None
     return {"firing": result["firing"], "unavailable": result["unavailable"], "checked": result["checked"]}
 
 
 @router.get("/api/alerts/history")
 def alert_history(limit: int = Query(50, ge=1, le=200), user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
     rows = db.scalars(select(AlertEvent).where(AlertEvent.user_id == user.id).order_by(AlertEvent.id.desc()).limit(limit))
-    return {"events": [{"id": e.id, "day": e.day, "watchlist": e.watchlist_name, "ticker": e.ticker, "message": e.message} for e in rows]}
+    return {"events": [{"id": e.id, "day": e.day, "at": iso_utc(e.created_at), "watchlist": e.watchlist_name,
+                        "ticker": e.ticker, "message": e.message} for e in rows]}
 
 
 # ------------------------------------------------------------------ CSV export

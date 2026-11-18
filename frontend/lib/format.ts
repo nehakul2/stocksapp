@@ -43,3 +43,20 @@ export function venue(ticker: string, exchange: string): string {
   if (ticker.endsWith("=F")) return "Futures";
   return exchange || "\u2014";
 }
+
+// "Nov 18, 2:31 PM" in the viewer's own time zone. Empty if the timestamp is missing or invalid.
+export function fmtWhen(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// "2:31 PM" if it was today, otherwise "Nov 17, 2:31 PM".
+export function fmtSince(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? time : fmtWhen(iso);
+}

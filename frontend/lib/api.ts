@@ -47,9 +47,9 @@ export type Peers = {
 export type WatchlistDto = { id: number; name: string; tickers: string[] };
 export type AlertType = "price_above" | "price_below" | "sma_cross_above" | "sma_cross_below";
 export type AlertRule = { id: number; watchlist_id: number; ticker: string; type: AlertType; value: number; label: string };
-export type Firing = { alert_id: number; watchlist_id: number; watchlist: string; ticker: string; type: AlertType; message: string };
+export type Firing = { alert_id: number; watchlist_id: number; watchlist: string; ticker: string; type: AlertType; message: string; since: string | null };
 export type AlertCheck = { firing: Firing[]; unavailable: string[]; checked: number };
-export type AlertEvent = { id: number; day: string; watchlist: string; ticker: string; message: string };
+export type AlertEvent = { id: number; day: string; at: string; watchlist: string; ticker: string; message: string };
 
 export type Settings = { email: string; email_alerts: boolean; email_configured: boolean; email_available: boolean };
 
@@ -118,6 +118,7 @@ export const api = {
   saveSettings: (token: string, email_alerts: boolean) => authed<Settings>("/api/settings", token, "PUT", { email_alerts }),
   chat: (token: string, question: string, history: ChatTurn[], ticker?: string) =>
     authed<ChatReply>("/api/chat", token, "POST", { question, history, ticker: ticker ?? null }),
+  testEmail: (token: string) => authed<{ sent_to: string }>("/api/settings/test-email", token, "POST"),
   clearAlertHistory: (token: string) => authed<{ ok: boolean }>("/api/alerts/history", token, "DELETE"),
   exportUrl: (t: string, start: string, end: string) => `${API}/api/stocks/${sym(t)}/export.csv?start=${start}&end=${end}`,
   aiUsage: (token: string) => get<AiUsage>("/api/ai/usage", token),
