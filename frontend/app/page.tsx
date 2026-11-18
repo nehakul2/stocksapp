@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-import Chat from "@/components/Chat";
 import ListSwitcher from "@/components/ListSwitcher";
 import Sparkline from "@/components/Sparkline";
 import { useAlerts } from "@/lib/alerts";
@@ -163,11 +162,6 @@ export default function Home() {
         {rows.length > 0 && (
           <p className="fine"><button className="linkish" onClick={downloadCsv}>Download this table (CSV)</button></p>
         )}
-      </section>
-
-      <section className="section" aria-label="Ask a question">
-        <h2>Ask</h2>
-        <Chat />
       </section>
     </>
   );
