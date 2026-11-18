@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, WatchlistDto } from "@/lib/api";
+import { api, ChatAction, WatchlistDto } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const KEY = "watchlist.v1";
@@ -29,6 +29,8 @@ type WatchlistState = {
   createList: (name: string) => Promise<string | null>;
   renameList: (id: number, name: string) => Promise<string | null>;
   deleteList: (id: number) => Promise<string | null>;
+  // Carries out one change that the chat proposed and the person confirmed.
+  runAction: (a: ChatAction) => Promise<string | null>;
 };
 
 const Ctx = createContext<WatchlistState | null>(null);
@@ -119,10 +121,41 @@ export function WatchlistProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { return e instanceof Error ? e.message : "Something went wrong."; }
   }, [activeId, setActive]);
 
+  const listsRef = useRef(lists);
+  listsRef.current = lists;
+
+  const runAction = useCallback(async (a: ChatAction) => {
+    const t = tokenRef.current;
+    if (!t) return "Sign in first.";
+    try {
+      if (a.type === "create_list") {
+        const wl = await api.createWatchlist(t, a.name ?? "");
+        let tickers: string[] = [];
+        if (a.tickers?.length) tickers = (await api.saveTickers(t, wl.id, a.tickers)).tickers;
+        setLists((ls) => [...ls, { ...wl, tickers }]);
+        return null;
+      }
+      const target = listsRef.current.find((l) => l.id === a.list_id);
+      if (!target) return "That watchlist no longer exists.";
+      if (a.type === "rename_list") {
+        const wl = await api.renameWatchlist(t, target.id, a.new_name ?? "");
+        setLists((ls) => ls.map((w) => (w.id === target.id ? { ...w, name: wl.name } : w)));
+        return null;
+      }
+      const wanted = a.tickers ?? [];
+      const next = a.type === "add_to_list"
+        ? [...target.tickers, ...wanted.filter((x) => !target.tickers.includes(x))]
+        : target.tickers.filter((x) => !wanted.includes(x));
+      const saved = await api.saveTickers(t, target.id, next);
+      setLists((ls) => ls.map((w) => (w.id === target.id ? { ...w, tickers: saved.tickers } : w)));
+      return null;
+    } catch (e) { return e instanceof Error ? e.message : "Something went wrong."; }
+  }, []);
+
   const value = useMemo<WatchlistState>(() => ({
     tickers, lists, activeId: active.id, signedIn: !!token && active.id !== 0, ready,
-    add, remove, setActive, createList, renameList, deleteList,
-  }), [tickers, lists, active.id, token, ready, add, remove, setActive, createList, renameList, deleteList]);
+    add, remove, setActive, createList, renameList, deleteList, runAction,
+  }), [tickers, lists, active.id, token, ready, add, remove, setActive, createList, renameList, deleteList, runAction]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

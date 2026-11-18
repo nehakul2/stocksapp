@@ -51,6 +51,15 @@ export type Firing = { alert_id: number; watchlist_id: number; watchlist: string
 export type AlertCheck = { firing: Firing[]; unavailable: string[]; checked: number };
 export type AlertEvent = { id: number; day: string; watchlist: string; ticker: string; message: string };
 
+export type Settings = { email: string; email_alerts: boolean; email_configured: boolean; email_available: boolean };
+
+export type ChatAction = {
+  type: "create_list" | "add_to_list" | "remove_from_list" | "rename_list";
+  label: string; list?: string; list_id?: number; name?: string; new_name?: string; tickers?: string[];
+};
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+export type ChatReply = { answer: string; actions: ChatAction[]; usage: { used: number; limit: number } };
+
 export const SMA_WINDOWS = [5, 20, 50, 100, 200] as const;
 
 async function get<T>(path: string, token?: string): Promise<T> {
@@ -105,6 +114,10 @@ export const api = {
   deleteAlert: (token: string, alertId: number) => authed<{ ok: boolean }>(`/api/alerts/${alertId}`, token, "DELETE"),
   checkAlerts: (token: string) => authed<AlertCheck>("/api/alerts/check", token, "POST"),
   alertHistory: (token: string) => authed<{ events: AlertEvent[] }>("/api/alerts/history", token),
+  settings: (token: string) => authed<Settings>("/api/settings", token),
+  saveSettings: (token: string, email_alerts: boolean) => authed<Settings>("/api/settings", token, "PUT", { email_alerts }),
+  chat: (token: string, question: string, history: ChatTurn[], ticker?: string) =>
+    authed<ChatReply>("/api/chat", token, "POST", { question, history, ticker: ticker ?? null }),
   clearAlertHistory: (token: string) => authed<{ ok: boolean }>("/api/alerts/history", token, "DELETE"),
   exportUrl: (t: string, start: string, end: string) => `${API}/api/stocks/${sym(t)}/export.csv?start=${start}&end=${end}`,
   aiUsage: (token: string) => get<AiUsage>("/api/ai/usage", token),

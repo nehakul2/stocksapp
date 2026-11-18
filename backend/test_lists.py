@@ -171,3 +171,38 @@ def test_export_csv_newest_first_and_validation():
     assert client.get("/api/stocks/tgt/export.csv", params={"start": "2025-09-05", "end": "2025-09-01"}).status_code == 400
     assert client.get("/api/stocks/tgt/export.csv", params={"start": "nope", "end": "2025-09-01"}).status_code == 400
     assert client.get("/api/stocks/tgt/export.csv", params={"start": "2020-01-01", "end": "2020-01-03"}).status_code == 404
+
+
+# ---- first-load race
+def test_two_requests_creating_the_first_watchlist_at_once_both_succeed(monkeypatch):
+    """A request that loses the race to create 'My Watchlist' must use the winner's, not crash."""
+    from sqlalchemy.orm import Session
+    from db import SessionLocal, Watchlist
+    h = new_user()
+    uid = client.get("/api/me", headers=h).json()["id"]
+    real_flush = Session.flush
+    fired = []
+
+    def flush_after_a_rival_wins(self, *a, **k):
+        if not fired:
+            fired.append(1)
+            with SessionLocal() as rival:  # the other request gets there first
+                rival.add(Watchlist(user_id=uid, name="My Watchlist", position=0))
+                rival.commit()
+        return real_flush(self, *a, **k)
+
+    monkeypatch.setattr(Session, "flush", flush_after_a_rival_wins)
+    r = client.get("/api/watchlists", headers=h)
+    assert r.status_code == 200
+    assert [w["name"] for w in r.json()["watchlists"]] == ["My Watchlist"]
+    monkeypatch.setattr(Session, "flush", real_flush)
+    assert len(client.get("/api/watchlists", headers=h).json()["watchlists"]) == 1  # no duplicate was created
+
+
+def test_parallel_first_requests_all_succeed():
+    from concurrent.futures import ThreadPoolExecutor
+    h = new_user()
+    calls = [lambda: client.get("/api/watchlists", headers=h), lambda: client.post("/api/alerts/check", headers=h)] * 3
+    with ThreadPoolExecutor(6) as pool:
+        codes = [f.result().status_code for f in [pool.submit(c) for c in calls]]
+    assert codes == [200] * 6

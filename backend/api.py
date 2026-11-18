@@ -27,6 +27,8 @@ import ai
 import auth
 import core
 from db import User, get_db, init_db
+import chat
+import notify
 from lists import router as lists_router
 
 app = FastAPI(title="Stock Insights API", version="0.2.0")
@@ -50,11 +52,14 @@ app.add_middleware(
 
 
 app.include_router(lists_router)
+app.include_router(notify.router)
+app.include_router(chat.router)
 
 
 @app.on_event("startup")
 def _startup():
     init_db()
+    notify.start_scheduler()
 
 # Same ranges as the Streamlit app: (data to fetch, days of chart to show)
 # (data to fetch, days of chart to show). Every range fetches at least 2 years
