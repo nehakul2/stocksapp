@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -123,7 +123,7 @@ def explain_move(api_key: str, ticker: str, explanation: dict, headlines: list, 
     """Writes a short plain-English explanation of today's move and picks which of
     the recent headlines actually bear on it. Returns {summary, headlines}."""
     pct = explanation["pct_change"]
-    facts = [f"{ticker} is {'up' if pct >= 0 else 'down'} {abs(pct):.2f}% today ({explanation['magnitude']})."]
+    facts = [f"Today's date is {date.today():%A, %B %d, %Y}.", f"{ticker} is {'up' if pct >= 0 else 'down'} {abs(pct):.2f}% today ({explanation['magnitude']})."]
     for key in ("market_note", "volume_note", "earnings_note"):
         if explanation.get(key):
             facts.append(explanation[key])
@@ -141,8 +141,9 @@ def explain_move(api_key: str, ticker: str, explanation: dict, headlines: list, 
         "Do two things:\n"
         "1. Write 3-4 short sentences in plain language. Lead with the single most likely reason for today's "
         "move, using the facts and headlines above (the market and similar-company numbers tell you whether the "
-        "move is company-specific or market-wide). Then one sentence on what to watch next, such as an upcoming "
-        "earnings date. Say once, briefly, that this is correlation and not proof; do not repeat the caveat. "
+        "move is company-specific or market-wide; when the stock moved differently from similar companies, "
+        "weigh that above the S&P 500 comparison and say the move looks specific to the company). Then one sentence on what to watch next, such as an upcoming "
+        "earnings date, using today's date to say when (today, tomorrow, or in N days). Say once, briefly, that this is correlation and not proof; do not repeat the caveat. "
         "If the headlines and facts do not explain the move, say so plainly instead of stretching. "
         "Use only the facts and headlines above, invent nothing, and give no buy or sell advice.\n"
         "2. Choose up to 3 headlines that plausibly relate to this stock's move today (leave out generic market "

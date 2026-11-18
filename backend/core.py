@@ -517,6 +517,45 @@ def explain_price_move(ticker: str, hist_with_sma: pd.DataFrame, news_items: lis
     return result
 
 
+ALERT_TYPES = ("price_above", "price_below", "sma_cross_above", "sma_cross_below")
+
+
+def alert_label(alert_type: str, value: float) -> str:
+    v = int(value) if float(value).is_integer() else value
+    return {
+        "price_above": f"Price above {v}",
+        "price_below": f"Price below {v}",
+        "sma_cross_above": f"Crosses above SMA {v}",
+        "sma_cross_below": f"Crosses below SMA {v}",
+    }[alert_type]
+
+
+def evaluate_alert(ticker: str, hist_with_sma: pd.DataFrame, alert_type: str, value: float):
+    """Returns a message if the alert has fired as of the latest bar, else None.
+    Price alerts fire while the price is past the level. SMA alerts fire only on the
+    day the price crosses (it was on one side yesterday and the other side today)."""
+    if len(hist_with_sma) < 2:
+        return None
+    latest, previous = hist_with_sma.iloc[-1], hist_with_sma.iloc[-2]
+    close, prev_close = float(latest["Close"]), float(previous["Close"])
+    v = int(value) if float(value).is_integer() else value
+
+    if alert_type == "price_above" and close > value:
+        return f"{ticker}: price {close:.2f} is above your level of {v}"
+    if alert_type == "price_below" and close < value:
+        return f"{ticker}: price {close:.2f} is below your level of {v}"
+    if alert_type in ("sma_cross_above", "sma_cross_below"):
+        col = f"SMA_{int(value)}"
+        sma, prev_sma = latest.get(col), previous.get(col)
+        if sma is None or prev_sma is None or pd.isna(sma) or pd.isna(prev_sma):
+            return None
+        if alert_type == "sma_cross_above" and prev_close <= prev_sma and close > sma:
+            return f"{ticker}: price crossed above its {int(value)}-day average"
+        if alert_type == "sma_cross_below" and prev_close >= prev_sma and close < sma:
+            return f"{ticker}: price crossed below its {int(value)}-day average"
+    return None
+
+
 # Fallback peer groups, used only when Yahoo can't tell us a stock's industry peers.
 PEER_GROUPS = [
     ["WMT", "TGT", "COST", "AMZN", "DG", "BJ"],
@@ -613,13 +652,21 @@ def compare_with_peers(ticker: str) -> dict:
 
 
 def peer_facts(comparison: dict) -> str:
-    """One short sentence of peer numbers for the AI prompt ('' if there are no peers)."""
+    """Peer numbers for the AI prompt, with the gap worked out in code ('' if no peers)."""
     peers = [r for r in comparison["rows"] if r["kind"] == "peer" and r["day_pct"] is not None]
     if not peers:
         return ""
     listing = ", ".join(f"{r['ticker']} {r['day_pct']:+.2f}%" for r in peers)
     med = comparison["peer_median_day_pct"]
-    return f"Similar companies today: {listing} (median {med:+.2f}%)."
+    text = f"Similar companies today: {listing} (median {med:+.2f}%)."
+    own = next((r for r in comparison["rows"] if r["kind"] == "self"), None)
+    if own and own["day_pct"] is not None and med is not None:
+        gap = own["day_pct"] - med
+        if abs(gap) < 0.5:
+            text += f" {comparison['ticker']} moved about in line with them."
+        else:
+            text += f" {comparison['ticker']} {'beat' if gap > 0 else 'trailed'} that median by {abs(gap):.1f} points."
+    return text
 
 
 def generate_ai_move_summary(api_key: str, ticker: str, explanation: dict) -> str:

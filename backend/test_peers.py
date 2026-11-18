@@ -46,6 +46,7 @@ def test_comparison_has_self_peers_and_market_and_skips_broken_peers():
 def test_peer_facts_sentence():
     note = core.peer_facts(core.compare_with_peers("TGT"))
     assert "WMT -1.00%" in note and "COST +1.00%" in note and "median +0.00%" in note
+    assert "TGT trailed that median by 4.0 points" in note  # TGT -4% vs peers' median 0%
 
 
 def test_peer_facts_empty_without_peers(monkeypatch):
@@ -91,4 +92,5 @@ def test_prompt_includes_peer_numbers_and_the_tighter_instructions():
         ai.explain_move("k", "TGT", {"pct_change": -4.0, "magnitude": "a notable move"}, [], "Similar companies today: WMT -1.00%.")
     p = seen["p"]
     assert "WMT -1.00%" in p
+    assert "Today's date is " in p and "weigh that above the S&P 500" in p
     assert "3-4 short sentences" in p and "do not repeat the caveat" in p and "say so plainly" in p

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Header from "@/components/Header";
+import { AlertsProvider } from "@/lib/alerts";
 import { AuthProvider } from "@/lib/auth";
+import { WatchlistProvider } from "@/lib/watchlist";
 
 export const metadata: Metadata = {
   title: "Stock Insights",
@@ -17,8 +19,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
       <body>
         <AuthProvider>
-          <Header />
-          <main><div className="wrap">{children}</div></main>
+          <WatchlistProvider>
+            <AlertsProvider>
+              <Header />
+              <main><div className="wrap">{children}</div></main>
+            </AlertsProvider>
+          </WatchlistProvider>
         </AuthProvider>
       </body>
     </html>

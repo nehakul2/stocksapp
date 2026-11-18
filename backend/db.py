@@ -64,6 +64,53 @@ class WatchlistItem(Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class Watchlist(Base):
+    """A named list of tickers. Every user has at least one."""
+    __tablename__ = "watchlists"
+    __table_args__ = (UniqueConstraint("user_id", "name"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class WatchlistTicker(Base):
+    __tablename__ = "watchlist_tickers"
+    __table_args__ = (UniqueConstraint("watchlist_id", "ticker"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id", ondelete="CASCADE"), index=True)
+    ticker: Mapped[str] = mapped_column(String(20))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Alert(Base):
+    """One alert rule on one ticker of one watchlist.
+    type: price_above | price_below | sma_cross_above | sma_cross_below
+    value: the price, or the SMA window (5, 20, 50, 100, 200)."""
+    __tablename__ = "alerts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    watchlist_id: Mapped[int] = mapped_column(ForeignKey("watchlists.id", ondelete="CASCADE"), index=True)
+    ticker: Mapped[str] = mapped_column(String(20))
+    type: Mapped[str] = mapped_column(String(20))
+    value: Mapped[float] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class AlertEvent(Base):
+    """History of alerts that fired. One row per user, watchlist name, day and message,
+    so checking again the same day doesn't add duplicates."""
+    __tablename__ = "alert_events"
+    __table_args__ = (UniqueConstraint("user_id", "watchlist_name", "day", "message"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    watchlist_name: Mapped[str] = mapped_column(String(40))
+    ticker: Mapped[str] = mapped_column(String(20))
+    day: Mapped[str] = mapped_column(String(10))
+    message: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class AiUsage(Base):
     """How many AI requests a user has made on a given day (UTC). user_id 0 is the
     shared counter for everyone, used as a global spending cap."""

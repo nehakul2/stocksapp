@@ -44,6 +44,13 @@ export type Peers = {
   peer_median_day_pct: number | null; peer_median_month_pct: number | null;
 };
 
+export type WatchlistDto = { id: number; name: string; tickers: string[] };
+export type AlertType = "price_above" | "price_below" | "sma_cross_above" | "sma_cross_below";
+export type AlertRule = { id: number; watchlist_id: number; ticker: string; type: AlertType; value: number; label: string };
+export type Firing = { alert_id: number; watchlist_id: number; watchlist: string; ticker: string; type: AlertType; message: string };
+export type AlertCheck = { firing: Firing[]; unavailable: string[]; checked: number };
+export type AlertEvent = { id: number; day: string; watchlist: string; ticker: string; message: string };
+
 export const SMA_WINDOWS = [5, 20, 50, 100, 200] as const;
 
 async function get<T>(path: string, token?: string): Promise<T> {
@@ -61,6 +68,22 @@ async function get<T>(path: string, token?: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function authed<T>(path: string, token: string, method = "GET", body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, {
+      method, cache: "no-store",
+      headers: { Authorization: `Bearer ${token}`, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error(`Can't reach the API at ${API}. Is it running?`);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.detail ?? `Request failed (${res.status})`), { status: res.status });
+  return data as T;
+}
+
 const list = (t: string[]) => encodeURIComponent(t.join(","));
 const sym = (t: string) => encodeURIComponent(t);
 
@@ -71,6 +94,19 @@ export const api = {
   detail: (t: string, range: string) => get<Detail>(`/api/stocks/${sym(t)}?range=${range}`),
   history: (t: string, range: string) => get<{ bars: Bar[] }>(`/api/stocks/${sym(t)}/history?range=${range}`),
   peers: (t: string) => get<Peers>(`/api/stocks/${sym(t)}/peers`),
+  watchlists: (token: string) => authed<{ watchlists: WatchlistDto[] }>("/api/watchlists", token),
+  createWatchlist: (token: string, name: string) => authed<WatchlistDto>("/api/watchlists", token, "POST", { name }),
+  renameWatchlist: (token: string, id: number, name: string) => authed<WatchlistDto>(`/api/watchlists/${id}`, token, "PATCH", { name }),
+  deleteWatchlist: (token: string, id: number) => authed<{ watchlists: WatchlistDto[] }>(`/api/watchlists/${id}`, token, "DELETE"),
+  saveTickers: (token: string, id: number, tickers: string[]) => authed<{ tickers: string[] }>(`/api/watchlists/${id}/tickers`, token, "PUT", { tickers }),
+  alerts: (token: string, id: number) => authed<{ alerts: AlertRule[] }>(`/api/watchlists/${id}/alerts`, token),
+  addAlert: (token: string, id: number, ticker: string, type: AlertType, value: number) =>
+    authed<AlertRule>(`/api/watchlists/${id}/alerts`, token, "POST", { ticker, type, value }),
+  deleteAlert: (token: string, alertId: number) => authed<{ ok: boolean }>(`/api/alerts/${alertId}`, token, "DELETE"),
+  checkAlerts: (token: string) => authed<AlertCheck>("/api/alerts/check", token, "POST"),
+  alertHistory: (token: string) => authed<{ events: AlertEvent[] }>("/api/alerts/history", token),
+  clearAlertHistory: (token: string) => authed<{ ok: boolean }>("/api/alerts/history", token, "DELETE"),
+  exportUrl: (t: string, start: string, end: string) => `${API}/api/stocks/${sym(t)}/export.csv?start=${start}&end=${end}`,
   aiUsage: (token: string) => get<AiUsage>("/api/ai/usage", token),
   async aiSummary(t: string, token: string): Promise<AiResult> {
     let res: Response;

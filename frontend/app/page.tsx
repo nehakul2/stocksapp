@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
+import ListSwitcher from "@/components/ListSwitcher";
 import Sparkline from "@/components/Sparkline";
+import { useAlerts } from "@/lib/alerts";
 import { useCallback, useEffect, useState } from "react";
 import { api, AttentionItem, OverviewRow, SMA_WINDOWS } from "@/lib/api";
 import { arrow, dirOf, earningsLabel, fmtNum, fmtSigned, venue } from "@/lib/format";
@@ -14,7 +16,9 @@ function dayChange(r: OverviewRow) {
 }
 
 export default function Home() {
-  const { tickers, ready, remove } = useWatchlist();
+  const { tickers, ready, remove, activeId, lists } = useWatchlist();
+  const { check } = useAlerts();
+  const firingHere = (check?.firing ?? []).filter((f) => f.watchlist_id === activeId);
   const [rows, setRows] = useState<OverviewRow[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   const [error, setError] = useState("");
@@ -49,14 +53,43 @@ export default function Home() {
     return row ? dayChange(row) : null;
   };
 
+  function downloadCsv() {
+    const q = (v: string | number | null | undefined) => {
+      const t = v == null ? "" : String(v);
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const head = ["Ticker", "Exchange", "Date", "Close", "Previous close", "Day change %", ...SMA_WINDOWS.map((w) => `SMA ${w}`), "Next earnings"];
+    const lines = [head.map(q).join(",")];
+    for (const r of rows) {
+      const ch = dayChange(r);
+      lines.push([r.ticker, r.exchange, r.date, r.close, r.prev_close, ch == null ? "" : ch.toFixed(2),
+        ...SMA_WINDOWS.map((w) => r[`sma_${w}` as const]), r.next_earnings].map(q).join(","));
+    }
+    const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(lists.find((l) => l.id === activeId)?.name ?? "watchlist").replace(/[^\w-]+/g, "_")}_sma_report.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <>
+      <ListSwitcher />
       <section aria-labelledby="brief-h">
         <h2 id="brief-h" style={{ fontFamily: "var(--serif)", fontSize: "2rem", letterSpacing: "-0.02em" }}>Worth a look today</h2>
         <p className="sub">
           {loading ? "Checking your watchlist…" : `${attention.length} of ${tickers.length} on your watchlist.`}
           {updated && <> Updated {updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. <button onClick={load} style={{ background: "none", border: 0, padding: 0, textDecoration: "underline", color: "var(--ink-2)" }}>Refresh</button></>}
         </p>
+        {firingHere.length > 0 && (
+          <p className="alertbanner" role="status">
+            <b>{firingHere.length} {firingHere.length === 1 ? "alert is" : "alerts are"} firing on this list:</b>{" "}
+            {firingHere.slice(0, 3).map((f) => f.message).join("; ")}{firingHere.length > 3 ? "…" : ""}{" "}
+            <Link href="/alerts">See all</Link>
+          </p>
+        )}
         {error && <p className="msg err" role="alert">{error}</p>}
         {!error && !loading && attention.length === 0 && (
           <p className="empty">Nothing unusual right now: no big moves, volume spikes, key-level crosses or earnings close by.</p>
@@ -125,6 +158,9 @@ export default function Home() {
               </tbody>
             </table>
           </div>
+        )}
+        {rows.length > 0 && (
+          <p className="fine"><button className="linkish" onClick={downloadCsv}>Download this table (CSV)</button></p>
         )}
       </section>
     </>
