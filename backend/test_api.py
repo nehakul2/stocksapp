@@ -45,6 +45,7 @@ def test_overview_and_alias():
     r = client.get("/api/overview", params={"tickers": "tgt, gold, BAD"}).json()["rows"]
     assert [x["ticker"] for x in r] == ["TGT", "GC=F", "BAD"]
     assert r[0]["sma_200"] is not None and "error" in r[2]
+    assert 2 <= len(r[0]["spark"]) <= 30 and all(isinstance(v, float) for v in r[0]["spark"])
 
 
 def test_attention_flags_big_move():
@@ -68,7 +69,7 @@ def test_history_json_safe():
 def test_errors():
     assert client.get("/api/stocks/BAD").status_code == 404
     assert client.get("/api/stocks/TGT", params={"range": "9y"}).status_code == 400
-    assert client.post("/api/stocks/TGT/ai-summary").status_code == 400
+    assert client.post("/api/stocks/TGT/ai-summary").status_code == 401  # AI needs sign-in
     assert client.get("/api/overview", params={"tickers": ",".join(f"T{i}" for i in range(40))}).status_code == 400
 
 
