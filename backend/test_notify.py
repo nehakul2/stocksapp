@@ -180,6 +180,21 @@ def test_mailer_turns_resend_errors_into_readable_messages(monkeypatch):
         mailer.send("a@b.c", "s", "t")
 
 
+def test_mailer_sends_a_client_name_and_shows_non_json_errors(monkeypatch):
+    import io, urllib.error, urllib.request
+    monkeypatch.undo()
+    monkeypatch.setenv("RESEND_API_KEY", "k")
+    seen = {}
+
+    def fake(req, *a, **k):
+        seen["ua"] = req.get_header("User-agent")
+        raise urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b"<html>\n error code: 1010 \n</html>"))
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    with pytest.raises(RuntimeError, match=r"403.*error code: 1010"):
+        mailer.send("a@b.c", "s", "t")
+    assert seen["ua"] == "stocksapp/1.0"
+
+
 def test_email_says_when_the_alert_was_first_seen(monkeypatch):
     h, email = new_user(); setup_alert(h); turn_on(h)
     monkeypatch.setenv("ALERT_TIMEZONE", "America/Los_Angeles")

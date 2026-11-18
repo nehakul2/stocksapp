@@ -46,18 +46,29 @@ def send(to: str, subject: str, text: str) -> None:
     }).encode()
     req = urllib.request.Request(
         API_URL, data=body, method="POST",
-        headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY'].strip()}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {os.environ['RESEND_API_KEY'].strip()}",
+            "Content-Type": "application/json",
+            # Resend's edge rejects Python's default "Python-urllib" client name with a bare 403.
+            "User-Agent": "stocksapp/1.0",
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             if resp.status >= 300:
                 raise RuntimeError(f"Resend answered with status {resp.status}.")
     except urllib.error.HTTPError as e:
-        detail = ""
+        raw = ""
         try:
-            detail = str(json.loads(e.read().decode()).get("message", ""))
+            raw = e.read().decode(errors="replace").strip()
         except Exception:
             pass
+        detail = ""
+        try:
+            detail = str(json.loads(raw).get("message", ""))
+        except Exception:
+            # Not Resend's own JSON: show a short piece of what came back so the cause is visible.
+            detail = " ".join(raw.split())[:150]
         raise RuntimeError(f"Resend said no ({e.code}): {detail or e.reason}")
     except urllib.error.URLError as e:
         raise RuntimeError(f"Couldn't reach Resend: {e.reason}")
