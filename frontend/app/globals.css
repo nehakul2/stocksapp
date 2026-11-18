@@ -265,3 +265,9 @@ details.why > summary h2 { border-left: 4px solid var(--accent); padding-left: 1
 .aiactions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .ai button.clear { height: 38px; padding: 0 14px; border: 1px solid var(--rule); background: transparent; border-radius: 6px; color: var(--ink-2); }
 .ai button.clear:hover { background: var(--wash); color: var(--ink); }
+
+/* Peer comparison */
+table.ledger.peers { min-width: 520px; }
+.peers tr.me td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.peers .pn { margin-left: 10px; font-size: 0.9375rem; }
+.peers .tag { margin-left: 10px; }

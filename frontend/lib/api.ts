@@ -35,6 +35,15 @@ export type SearchHit = { symbol: string; name: string; exchange: string; type: 
 export type AiUsage = { used: number; limit: number; enabled: boolean };
 export type AiResult = { ticker: string; summary: string; headlines: NewsItem[]; usage: { used: number; limit: number } };
 
+export type PeerRow = {
+  ticker: string; name: string; kind: "self" | "peer" | "market";
+  price: number | null; day_pct: number | null; month_pct: number | null;
+};
+export type Peers = {
+  ticker: string; sector: string; industry: string; rows: PeerRow[];
+  peer_median_day_pct: number | null; peer_median_month_pct: number | null;
+};
+
 export const SMA_WINDOWS = [5, 20, 50, 100, 200] as const;
 
 async function get<T>(path: string, token?: string): Promise<T> {
@@ -61,6 +70,7 @@ export const api = {
   attention: (t: string[]) => get<{ items: AttentionItem[] }>(`/api/attention?tickers=${list(t)}`),
   detail: (t: string, range: string) => get<Detail>(`/api/stocks/${sym(t)}?range=${range}`),
   history: (t: string, range: string) => get<{ bars: Bar[] }>(`/api/stocks/${sym(t)}/history?range=${range}`),
+  peers: (t: string) => get<Peers>(`/api/stocks/${sym(t)}/peers`),
   aiUsage: (token: string) => get<AiUsage>("/api/ai/usage", token),
   async aiSummary(t: string, token: string): Promise<AiResult> {
     let res: Response;
