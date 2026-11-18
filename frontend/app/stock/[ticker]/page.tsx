@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import AlertsPanel from "@/components/AlertsPanel";
 import PriceChart, { ChartType, SMA_VARS } from "@/components/PriceChart";
 import { AiResult, AiUsage, api, Bar, Detail, Peers, SMA_WINDOWS } from "@/lib/api";
 import { arrow, daysUntil, dirOf, earningsLabel, fmtDate, fmtNum, fmtSigned, venue } from "@/lib/format";
@@ -42,6 +43,10 @@ export default function StockPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const today = new Date().toISOString().slice(0, 10);
+  const threeMonthsAgo = new Date(Date.now() - 91 * 86400000).toISOString().slice(0, 10);
+  const [csvFrom, setCsvFrom] = useState(threeMonthsAgo);
+  const [csvTo, setCsvTo] = useState(today);
   const [peers, setPeers] = useState<Peers | null>(null);
   const [peersState, setPeersState] = useState<"loading" | "ok" | "none">("loading");
 
@@ -313,6 +318,22 @@ export default function StockPage() {
               <p className="fine">AI-written from the notes above. It can be wrong, and it is not financial advice.</p>
             </>
           )}
+        </div>
+      </section>
+
+      <section className="section" aria-label="Alerts">
+        <h2>Alerts</h2>
+        <AlertsPanel ticker={symbol} />
+      </section>
+
+      <section className="section" aria-label="Download price history">
+        <h2>Download price history</h2>
+        <p className="sub">Daily open, high, low and close for the dates you choose, as a spreadsheet file.</p>
+        <div className="csvrow">
+          <label>From <input type="date" value={csvFrom} max={csvTo} onChange={(e) => setCsvFrom(e.target.value)} /></label>
+          <label>To <input type="date" value={csvTo} min={csvFrom} max={today} onChange={(e) => setCsvTo(e.target.value)} /></label>
+          <a className="btnlink" href={csvFrom && csvTo && csvFrom <= csvTo ? api.exportUrl(symbol, csvFrom, csvTo) : undefined}
+             aria-disabled={!(csvFrom && csvTo && csvFrom <= csvTo)}>Download CSV</a>
         </div>
       </section>
 

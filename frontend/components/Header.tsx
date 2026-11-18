@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, SearchHit } from "@/lib/api";
+import { useAlerts } from "@/lib/alerts";
 import { useAuth } from "@/lib/auth";
 
 type Pref = "system" | "light" | "dark";
@@ -15,6 +16,8 @@ function applyTheme(pref: Pref) {
 export default function Header() {
   const router = useRouter();
   const { user, ready: authReady, signOut } = useAuth();
+  const { check } = useAlerts();
+  const firingCount = check?.firing.length ?? 0;
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [open, setOpen] = useState(false);
@@ -90,6 +93,9 @@ export default function Header() {
         <div className="spacer" />
         {authReady && (user ? (
           <div className="acct">
+            <Link href="/alerts" className="bell" aria-label={firingCount ? `Alerts, ${firingCount} firing` : "Alerts"}>
+              Alerts{firingCount > 0 && <span className="badge">{firingCount}</span>}
+            </Link>
             <span className="muted who" title={user.email}>{user.email}</span>
             <button className="linkish" onClick={() => { signOut(); router.push("/"); }}>Sign out</button>
           </div>

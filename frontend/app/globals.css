@@ -271,3 +271,36 @@ table.ledger.peers { min-width: 520px; }
 .peers tr.me td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .peers .pn { margin-left: 10px; font-size: 0.9375rem; }
 .peers .tag { margin-left: 10px; }
+
+/* Watchlist switcher */
+.lists { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-bottom: 22px; }
+.lists-pick { display: flex; gap: 8px; align-items: center; }
+.lists select, .alertform select, .alertform input, .lists-form input, .csvrow input {
+  height: 36px; padding: 0 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); font: inherit;
+}
+.lists-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 0.9375rem; }
+.lists-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lists-form button.go, .alertform button.go { height: 36px; padding: 0 14px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); border-radius: 6px; }
+.lists-form button.go:disabled, .alertform button.go:disabled { opacity: 0.5; cursor: default; }
+button.linkish { background: none; border: 0; padding: 0; text-decoration: underline; color: var(--ink-2); }
+button.linkish.danger { color: var(--down); }
+button.linkish:disabled { opacity: 0.6; cursor: default; }
+
+/* Alerts */
+.bell { color: var(--band-ink); text-decoration: none; font-size: 0.9375rem; display: inline-flex; gap: 6px; align-items: center; }
+.bell:hover { text-decoration: underline; }
+.badge { background: var(--band-ink); color: var(--band); border-radius: 999px; padding: 0 7px; font-weight: 700; font-size: 0.8125rem; }
+.alertbanner { margin: 12px 0 0; padding: 10px 14px; border-left: 4px solid var(--warn-mark); background: color-mix(in srgb, var(--warn-mark) 12%, transparent); border-radius: 0 6px 6px 0; max-width: 70ch; }
+.alertpanel .rules, .firing { list-style: none; padding: 0; margin: 0 0 14px; max-width: 60ch; }
+.alertpanel .rules li, .firing li { display: flex; gap: 14px; align-items: baseline; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.firing li { justify-content: flex-start; border-left: 4px solid var(--warn-mark); padding-left: 12px; margin-bottom: 6px; border-bottom: 0; background: color-mix(in srgb, var(--warn-mark) 8%, transparent); }
+.firing li .muted { margin-left: auto; font-size: 0.875rem; }
+.alertpanel .rm { background: none; border: 0; color: var(--muted); padding: 4px 8px; border-radius: 4px; }
+.alertpanel .rm:hover { color: var(--down); background: var(--wash); }
+.alertform { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* CSV download */
+.csvrow { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; }
+.csvrow label { display: flex; gap: 8px; align-items: center; color: var(--ink-2); }
+.btnlink { display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); border-radius: 6px; text-decoration: none; }
+.btnlink[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
