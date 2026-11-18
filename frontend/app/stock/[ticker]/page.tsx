@@ -233,9 +233,14 @@ export default function StockPage() {
                 Claude turns the notes above into a short explanation and picks the headlines that bear on today&rsquo;s move.
                 {aiUsage && <> You&rsquo;ve used {aiUsage.used} of {aiUsage.limit} today.</>}
               </p>
-              <button className="go" disabled={aiBusy || (!!aiUsage && aiUsage.used >= aiUsage.limit)} onClick={explain}>
-                {aiBusy ? "Writing…" : "Explain this move"}
-              </button>
+              <div className="aiactions">
+                <button className="go" disabled={aiBusy || (!!aiUsage && aiUsage.used >= aiUsage.limit)} onClick={explain}>
+                  {aiBusy ? "Writing…" : "Explain this move"}
+                </button>
+                {(ai || aiErr) && !aiBusy && (
+                  <button className="clear" onClick={() => { setAi(null); setAiErr(""); }}>Clear</button>
+                )}
+              </div>
             </>
           )}
           {aiErr && <p className="msg err" role="alert">{aiErr}</p>}
