@@ -52,11 +52,46 @@ def put_settings(body: SettingsBody, user: User = Depends(auth.current_user), db
     return settings_json(db, user)
 
 
+@router.post("/api/settings/test-email")
+def test_email(user: User = Depends(auth.current_user)):
+    """Sends one test email to the signed-in user, and reports exactly what went wrong if it fails."""
+    if not mailer.configured():
+        raise HTTPException(400, "Email isn't set up on this server: RESEND_API_KEY is missing.")
+    if not mailer.allowed(user.email):
+        raise HTTPException(400, f"{user.email} isn't on the approved list (EMAIL_ALLOWED_TO), so email is off for it.")
+    try:
+        mailer.send(user.email, "Stock Insights: test email",
+                    "This is a test from Stock Insights. If you can read this, alert emails will reach you.")
+    except Exception as e:
+        log.warning("Test email failed: %s", e)
+        raise HTTPException(502, str(e))
+    return {"sent_to": user.email}
+
+
 # ------------------------------------------------------------------ the checker
-def email_text(firing: list) -> tuple:
+def fmt_time(dt) -> str:
+    """'Nov 18, 2:31 PM PST' in ALERT_TIMEZONE (default UTC)."""
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+    try:
+        zone = ZoneInfo(os.environ.get("ALERT_TIMEZONE", "UTC") or "UTC")
+    except Exception:
+        zone = timezone.utc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local = dt.astimezone(zone)
+    return f"{local:%b} {local.day}, {local.hour % 12 or 12}:{local:%M} {'AM' if local.hour < 12 else 'PM'} {local.tzname()}"
+
+
+def email_text(firing: list, since: dict = None) -> tuple:
+    since = since or {}
     n = len(firing)
     subject = f"Stock Insights: {n} alert{'s' if n != 1 else ''} firing"
-    lines = [f"- {f['message']}  (watchlist: {f['watchlist']})" for f in firing]
+    lines = []
+    for f in firing:
+        t = since.get((f["watchlist"], f["message"][:200]))
+        when = f", first seen {fmt_time(t)}" if t else ""
+        lines.append(f"- {f['message']}  (watchlist: {f['watchlist']}{when})")
     body = (
         "These alerts just started firing:\n\n" + "\n".join(lines) +
         f"\n\nSee them in the app: {mailer.frontend_url()}/alerts\n\n"
@@ -89,11 +124,12 @@ def run_cycle(db: Session) -> int:
 
             already = {r.alert_id for r in db.scalars(select(AlertEmail).where(AlertEmail.alert_id.in_(list(firing_ids) or [0])))}
             new = [f for f in firing if f["alert_id"] not in already]
-            lists.log_firings(db, user, firing)
+            since = lists.log_firings(db, user, firing)
             if not new:
                 continue
-            subject, body = email_text(new)
+            subject, body = email_text(new, since)
             mailer.send(user.email, subject, body)
+            print(f"[notify] Emailed user {user.id}: {len(new)} alert(s)", flush=True)
             for f in new:
                 db.add(AlertEmail(alert_id=f["alert_id"]))
             db.commit()
@@ -127,4 +163,4 @@ def start_scheduler() -> None:
             time.sleep(minutes * 60)
 
     threading.Thread(target=loop, name="alert-emails", daemon=True).start()
-    log.info("Alert email checker started (every %s minutes)", minutes)
+    print(f"[notify] Alert email checker started (every {minutes} minutes)", flush=True)

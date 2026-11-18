@@ -11,6 +11,7 @@ Settings (environment variables):
 import json
 import logging
 import os
+import urllib.error
 import urllib.request
 
 log = logging.getLogger("mailer")
@@ -47,6 +48,16 @@ def send(to: str, subject: str, text: str) -> None:
         API_URL, data=body, method="POST",
         headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY'].strip()}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        if resp.status >= 300:
-            raise RuntimeError(f"Resend returned {resp.status}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if resp.status >= 300:
+                raise RuntimeError(f"Resend answered with status {resp.status}.")
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = str(json.loads(e.read().decode()).get("message", ""))
+        except Exception:
+            pass
+        raise RuntimeError(f"Resend said no ({e.code}): {detail or e.reason}")
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Couldn't reach Resend: {e.reason}")

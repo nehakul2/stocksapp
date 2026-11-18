@@ -49,7 +49,8 @@ Optional. Set `RESEND_API_KEY` (from resend.com) on the backend to switch it on.
 checks every `ALERT_EMAIL_MINUTES` (default 15) and emails each user who turned it on, once when an alert
 starts firing (and again only if it stops and fires again). Until you verify a domain with Resend it can only
 deliver to your own address, so set `EMAIL_ALLOWED_TO` to that address. Other users see that email is not
-available for them yet. `EMAIL_FROM` and `FRONTEND_URL` are optional.
+available for them yet. `EMAIL_FROM`, `FRONTEND_URL` and `ALERT_TIMEZONE` (the zone for times inside emails, default UTC) are optional.
+The Alerts page has a "Send me a test email" button that shows the provider's exact error if sending fails.
 
 ## Chat
 Each stock page, and the home page, has a chat box. Questions use that stock's data (price, averages,

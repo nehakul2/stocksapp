@@ -206,3 +206,16 @@ def test_parallel_first_requests_all_succeed():
     with ThreadPoolExecutor(6) as pool:
         codes = [f.result().status_code for f in [pool.submit(c) for c in calls]]
     assert codes == [200] * 6
+
+
+def test_history_and_check_carry_timestamps():
+    from datetime import datetime, timezone
+    h = new_user(); wid = setup_list(h)
+    add(h, wid, "TGT", "price_above", 105)
+    out = client.post("/api/alerts/check", headers=h).json()
+    since = out["firing"][0]["since"]
+    ev = client.get("/api/alerts/history", headers=h).json()["events"][0]
+    assert since.endswith("Z") and ev["at"].endswith("Z")
+    assert abs((datetime.fromisoformat(since[:-1]).replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).total_seconds()) < 120
+    again = client.post("/api/alerts/check", headers=h).json()["firing"][0]["since"]
+    assert again == since  # the second check doesn't move "first seen"

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertEvent, api, Settings } from "@/lib/api";
 import { useAlerts } from "@/lib/alerts";
 import { useAuth } from "@/lib/auth";
-import { fmtDate } from "@/lib/format";
+import { fmtSince, fmtWhen } from "@/lib/format";
 
 export default function AlertsPage() {
   const { token, ready } = useAuth();
@@ -12,6 +12,18 @@ export default function AlertsPage() {
   const [events, setEvents] = useState<AlertEvent[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [emailErr, setEmailErr] = useState("");
+  const [testMsg, setTestMsg] = useState("");
+  const [testing, setTesting] = useState(false);
+
+  async function sendTest() {
+    if (!token) return;
+    setTesting(true); setTestMsg(""); setEmailErr("");
+    try {
+      const r = await api.testEmail(token);
+      setTestMsg(`Sent to ${r.sent_to}. It can take a minute; check your spam folder too.`);
+    } catch (e) { setEmailErr(e instanceof Error ? e.message : "Something went wrong."); }
+    finally { setTesting(false); }
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -70,7 +82,7 @@ export default function AlertsPage() {
                 <li key={f.alert_id}>
                   <Link className="tk" href={`/stock/${encodeURIComponent(f.ticker)}`}>{f.ticker}</Link>
                   <span>{f.message.replace(`${f.ticker}: `, "")}</span>
-                  <span className="muted">{f.watchlist}</span>
+                  <span className="muted">{f.since ? `since ${fmtSince(f.since)} · ` : ""}{f.watchlist}</span>
                 </li>
               ))}
             </ul>
@@ -94,6 +106,8 @@ export default function AlertsPage() {
                 Email me at {settings.email} when an alert starts firing
               </label>
               <p className="fine">You get one email when an alert starts firing, and another only if it stops and fires again. Checked every 15 minutes, even when the site is closed.</p>
+              <p className="fine"><button className="linkish" onClick={sendTest} disabled={testing}>{testing ? "Sending…" : "Send me a test email"}</button></p>
+              {testMsg && <p className="msg" role="status">{testMsg}</p>}
             </>
           )}
           {emailErr && <p className="msg err" role="alert">{emailErr}</p>}
@@ -102,15 +116,15 @@ export default function AlertsPage() {
 
       <section className="section" aria-label="History">
         <h2>History</h2>
-        {events.length === 0 ? <p className="empty">Alerts that fire will be listed here, one line per day.</p> : (
+        {events.length === 0 ? <p className="empty">Alerts that fire will be listed here, with the time they were first noticed, one line per day.</p> : (
           <>
             <div className="scroll">
               <table className="ledger" style={{ minWidth: 520 }}>
-                <thead><tr><th className="l">Date</th><th className="l">Stock</th><th className="l">What happened</th><th className="l">Watchlist</th></tr></thead>
+                <thead><tr><th className="l">When</th><th className="l">Stock</th><th className="l">What happened</th><th className="l">Watchlist</th></tr></thead>
                 <tbody>
                   {events.map((e) => (
                     <tr key={e.id}>
-                      <td className="l">{fmtDate(e.day)}</td>
+                      <td className="l">{fmtWhen(e.at)}</td>
                       <td className="l"><Link className="tk" href={`/stock/${encodeURIComponent(e.ticker)}`}>{e.ticker}</Link></td>
                       <td className="l" style={{ whiteSpace: "normal" }}>{e.message.replace(`${e.ticker}: `, "")}</td>
                       <td className="l muted">{e.watchlist}</td>
