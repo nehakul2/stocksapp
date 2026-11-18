@@ -25,8 +25,8 @@ async function saveServer(token: string, tickers: string[]): Promise<void> {
 }
 
 // Signed in: the watchlist lives in your account (works on any device).
-// Signed out: it stays in this browser, as before. The first time you sign in with an
-// empty account, the list from this browser is copied into it.
+// Signed out: it stays in this browser, as before. A new account starts with the default
+// list; nothing is copied over from the browser, so shared computers don't leak lists.
 export function useWatchlist() {
   const { token, ready: authReady } = useAuth();
   const [tickers, setTickers] = useState<string[]>(DEFAULT);
@@ -46,9 +46,8 @@ export function useWatchlist() {
         const server = await fetchServer(token);
         if (cancelled) return;
         if (server.length === 0) {
-          const local = readLocal() ?? DEFAULT; // first sign-in: bring this browser's list along
-          setTickers(local);
-          await saveServer(token, local);
+          setTickers(DEFAULT); // brand-new account: start clean
+          await saveServer(token, DEFAULT);
         } else {
           setTickers(server);
         }
