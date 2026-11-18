@@ -5,7 +5,7 @@ Streamlit-specific caching decorator was swapped for a small TTL cache.
 """
 import time
 import functools
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -174,35 +174,48 @@ def get_news(ticker: str, max_items: int = 5) -> list:
     return items
 
 
-@st_cache(86400)  # earnings dates rarely change intraday, cache for a day
-def get_next_earnings_date(ticker: str) -> str:
-    """Returns the next (or most recently announced) earnings report date as
-    'YYYY-MM-DD', or '' if unavailable. yfinance has returned this either as
-    a dict or a DataFrame across versions, so both shapes are handled."""
+def _as_date(value):
+    if hasattr(value, "date") and callable(value.date):
+        return value.date()  # datetime / Timestamp
+    if hasattr(value, "year") and hasattr(value, "month"):
+        return value  # already a date
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+@st_cache(86400)  # the calendar rarely changes intraday, cache it for a day
+def _earnings_dates(ticker: str) -> tuple:
+    """All earnings dates Yahoo lists for the ticker, as sorted 'YYYY-MM-DD'
+    strings. yfinance has returned the calendar as a dict or a DataFrame across
+    versions, so both shapes are handled."""
     try:
         cal = yf.Ticker(ticker).calendar
     except Exception:
-        return ""
-
-    def _format(value):
-        if hasattr(value, "strftime"):
-            return value.strftime("%Y-%m-%d")
-        return str(value) if value else ""
-
+        return ()
+    raw = []
     try:
         if isinstance(cal, dict):
             dates = cal.get("Earnings Date")
-            if isinstance(dates, (list, tuple)) and dates:
-                return _format(dates[0])
-            if dates:
-                return _format(dates)
+            raw = list(dates) if isinstance(dates, (list, tuple)) else ([dates] if dates else [])
         elif cal is not None and hasattr(cal, "empty") and not cal.empty and "Earnings Date" in cal.index:
             val = cal.loc["Earnings Date"]
-            first = val.iloc[0] if hasattr(val, "iloc") else val
-            return _format(first)
+            raw = list(val) if hasattr(val, "__iter__") and not isinstance(val, str) else [val]
     except Exception:
-        pass
-    return ""
+        return ()
+    found = sorted({d for d in (_as_date(v) for v in raw) if d is not None})
+    return tuple(d.strftime("%Y-%m-%d") for d in found)
+
+
+def get_next_earnings_date(ticker: str) -> str:
+    """The next upcoming earnings date as 'YYYY-MM-DD' (today counts), or ''.
+    Yahoo sometimes keeps listing the report that already happened, so past dates
+    are skipped instead of being shown as upcoming. The comparison with today runs
+    on every call, so a cached date can't go stale."""
+    today = date.today().strftime("%Y-%m-%d")
+    upcoming = [d for d in _earnings_dates(ticker) if d >= today]
+    return upcoming[0] if upcoming else ""
 
 
 @st_cache(3600)
