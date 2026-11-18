@@ -26,7 +26,8 @@ except ImportError:
 import ai
 import auth
 import core
-from db import User, WatchlistItem, get_db, init_db
+from db import User, get_db, init_db
+from lists import router as lists_router
 
 app = FastAPI(title="Stock Insights API", version="0.2.0")
 
@@ -46,6 +47,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(lists_router)
 
 
 @app.on_event("startup")
@@ -246,10 +250,6 @@ class Credentials(BaseModel):
     password: str
 
 
-class WatchlistBody(BaseModel):
-    tickers: list[str]
-
-
 def session_payload(user: User) -> dict:
     return {"token": auth.make_token(user), "user": {"id": user.id, "email": user.email}}
 
@@ -281,29 +281,3 @@ def login(body: Credentials, db: Session = Depends(get_db)):
 @app.get("/api/me")
 def me(user: User = Depends(auth.current_user)):
     return {"id": user.id, "email": user.email}
-
-
-def _saved_tickers(db: Session, user_id: int) -> list:
-    rows = db.scalars(
-        select(WatchlistItem).where(WatchlistItem.user_id == user_id).order_by(WatchlistItem.position)
-    )
-    return [r.ticker for r in rows]
-
-
-@app.get("/api/watchlist")
-def get_watchlist(user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
-    return {"tickers": _saved_tickers(db, user.id)}
-
-
-@app.put("/api/watchlist")
-def put_watchlist(
-    body: WatchlistBody, user: User = Depends(auth.current_user), db: Session = Depends(get_db)
-):
-    tickers = list(dict.fromkeys(core.normalize_ticker(t) for t in body.tickers if t.strip()))
-    if len(tickers) > MAX_TICKERS:
-        raise HTTPException(400, f"A watchlist can hold at most {MAX_TICKERS} tickers.")
-    db.query(WatchlistItem).filter(WatchlistItem.user_id == user.id).delete()
-    for i, t in enumerate(tickers):
-        db.add(WatchlistItem(user_id=user.id, ticker=t, position=i))
-    db.commit()
-    return {"tickers": tickers}
