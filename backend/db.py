@@ -111,6 +111,21 @@ class AlertEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class UserSettings(Base):
+    """Per-user switches. A user with no row has everything at its default (off)."""
+    __tablename__ = "user_settings"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    email_alerts: Mapped[bool] = mapped_column(default=False)
+
+
+class AlertEmail(Base):
+    """Marks an alert as 'already emailed while it keeps firing'. The row is removed when
+    the alert stops firing, so it can email again if it fires later."""
+    __tablename__ = "alert_emails"
+    alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class AiUsage(Base):
     """How many AI requests a user has made on a given day (UTC). user_id 0 is the
     shared counter for everyone, used as a global spending cap."""

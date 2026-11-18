@@ -103,6 +103,15 @@ def ask_claude(api_key: str, prompt: str, max_tokens: int = 500) -> str:
     return message.content[0].text.strip()
 
 
+def ask_chat(api_key: str, system: str, messages: list, max_tokens: int = 700) -> str:
+    """One chat turn with Claude. Tests replace this function."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(model=MODEL, max_tokens=max_tokens, system=system, messages=messages)
+    return message.content[0].text.strip()
+
+
 def _parse(raw: str, n_headlines: int) -> dict:
     """Reads the model's JSON answer. If it isn't valid JSON, the whole text becomes
     the summary and no headlines are picked, so a formatting slip never breaks the page."""

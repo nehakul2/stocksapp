@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AlertEvent, api } from "@/lib/api";
+import { AlertEvent, api, Settings } from "@/lib/api";
 import { useAlerts } from "@/lib/alerts";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
@@ -10,6 +10,20 @@ export default function AlertsPage() {
   const { token, ready } = useAuth();
   const { check, loading, refresh } = useAlerts();
   const [events, setEvents] = useState<AlertEvent[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [emailErr, setEmailErr] = useState("");
+
+  useEffect(() => {
+    if (!token) return;
+    api.settings(token).then(setSettings).catch(() => setSettings(null));
+  }, [token]);
+
+  async function toggleEmail(on: boolean) {
+    if (!token) return;
+    setEmailErr("");
+    try { setSettings(await api.saveSettings(token, on)); }
+    catch (e) { setEmailErr(e instanceof Error ? e.message : "Something went wrong."); }
+  }
 
   const loadHistory = useCallback(() => {
     if (!token) return;
@@ -65,6 +79,26 @@ export default function AlertsPage() {
           <p className="fine">Couldn&rsquo;t check alerts for {check.unavailable.join(", ")} just now. Yahoo Finance may be slow; try again in a minute.</p>
         )}
       </section>
+
+      {settings && (
+        <section className="section" aria-label="Email">
+          <h2>Email</h2>
+          {!settings.email_configured ? (
+            <p className="fine" style={{ marginTop: 0 }}>Email alerts aren&rsquo;t set up on this server yet.</p>
+          ) : !settings.email_available ? (
+            <p className="fine" style={{ marginTop: 0 }}>Email alerts are limited to approved addresses for now, so they&rsquo;re off for {settings.email}. In-app alerts still work.</p>
+          ) : (
+            <>
+              <label className="emailopt">
+                <input type="checkbox" checked={settings.email_alerts} onChange={(e) => toggleEmail(e.target.checked)} />
+                Email me at {settings.email} when an alert starts firing
+              </label>
+              <p className="fine">You get one email when an alert starts firing, and another only if it stops and fires again. Checked every 15 minutes, even when the site is closed.</p>
+            </>
+          )}
+          {emailErr && <p className="msg err" role="alert">{emailErr}</p>}
+        </section>
+      )}
 
       <section className="section" aria-label="History">
         <h2>History</h2>

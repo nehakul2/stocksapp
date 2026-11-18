@@ -31,14 +31,16 @@ def ensure_watchlists(db: Session, user: User) -> list:
     if rows:
         return rows
     wl = Watchlist(user_id=user.id, name=DEFAULT_NAME, position=0)
-    db.add(wl)
-    db.flush()
-    legacy = db.scalars(select(WatchlistItem).where(WatchlistItem.user_id == user.id).order_by(WatchlistItem.position))
-    for i, item in enumerate(legacy):
-        db.add(WatchlistTicker(watchlist_id=wl.id, ticker=item.ticker, position=i))
     try:
+        db.add(wl)
+        db.flush()
+        legacy = db.scalars(select(WatchlistItem).where(WatchlistItem.user_id == user.id).order_by(WatchlistItem.position))
+        for i, item in enumerate(legacy):
+            db.add(WatchlistTicker(watchlist_id=wl.id, ticker=item.ticker, position=i))
         db.commit()
-    except IntegrityError:  # two requests raced to create it; use the winner's
+    except IntegrityError:
+        # Two requests (for example the watchlist and the alert check, which the page sends
+        # together on first load) raced to create it. Use the one that won.
         db.rollback()
         return list(db.scalars(select(Watchlist).where(Watchlist.user_id == user.id).order_by(Watchlist.position, Watchlist.id)))
     return [wl]
@@ -212,16 +214,13 @@ def delete_alert(alert_id: int, user: User = Depends(auth.current_user), db: Ses
     return {"ok": True}
 
 
-@router.post("/api/alerts/check")
-def check_alerts(user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
-    """Checks every alert the user has, across all their watchlists, against the latest
-    prices. New firings are added to the history once per day. Returns what is firing now."""
+def evaluate_user_alerts(db: Session, user: User) -> dict:
+    """Runs every alert the user has against the latest prices. Does not write anything."""
     lists = ensure_watchlists(db, user)
     by_id = {wl.id: wl for wl in lists}
     alerts = list(db.scalars(select(Alert).where(Alert.watchlist_id.in_(list(by_id)))))
     hist_cache: dict = {}
-    firing = []
-    problems = []
+    firing, problems = [], []
     for a in alerts:
         if a.ticker not in hist_cache:
             try:
@@ -236,6 +235,12 @@ def check_alerts(user: User = Depends(auth.current_user), db: Session = Depends(
         if message:
             firing.append({"alert_id": a.id, "watchlist_id": a.watchlist_id, "watchlist": by_id[a.watchlist_id].name,
                            "ticker": a.ticker, "type": a.type, "message": message})
+    return {"firing": firing, "unavailable": sorted(set(problems)), "checked": len(alerts),
+            "alert_ids": [a.id for a in alerts], "unavailable_alert_ids": [a.id for a in alerts if hist_cache.get(a.ticker) is None]}
+
+
+def log_firings(db: Session, user: User, firing: list) -> None:
+    """Adds today's firings to the history, once per day per message."""
     today = date.today().isoformat()
     for f in firing:
         db.add(AlertEvent(user_id=user.id, watchlist_name=f["watchlist"], ticker=f["ticker"], day=today, message=f["message"][:200]))
@@ -243,7 +248,15 @@ def check_alerts(user: User = Depends(auth.current_user), db: Session = Depends(
             db.commit()
         except IntegrityError:
             db.rollback()  # already logged today
-    return {"firing": firing, "unavailable": sorted(set(problems)), "checked": len(alerts)}
+
+
+@router.post("/api/alerts/check")
+def check_alerts(user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """Checks every alert the user has, across all their watchlists, against the latest
+    prices. New firings are added to the history once per day. Returns what is firing now."""
+    result = evaluate_user_alerts(db, user)
+    log_firings(db, user, result["firing"])
+    return {"firing": result["firing"], "unavailable": result["unavailable"], "checked": result["checked"]}
 
 
 @router.get("/api/alerts/history")
