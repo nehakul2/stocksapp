@@ -261,3 +261,7 @@ details.why > summary:hover h2 { text-decoration: underline; text-decoration-col
 details.why > summary h2 { border-left: 4px solid var(--accent); padding-left: 12px; }
 .ai .out { border-left-color: var(--accent); }
 #brief-h { border-left: 4px solid var(--accent); padding-left: 12px; }
+
+.aiactions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.ai button.clear { height: 38px; padding: 0 14px; border: 1px solid var(--rule); background: transparent; border-radius: 6px; color: var(--ink-2); }
+.ai button.clear:hover { background: var(--wash); color: var(--ink); }
