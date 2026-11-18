@@ -13,6 +13,8 @@
   --up-mark: #0ca30c;
   --down-mark: #d03b3b;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --band: #12304d; --band-ink: #f2f6fa; --on-accent: #ffffff;
+  --warn: #7a4f00; --warn-mark: #eda100;
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
@@ -30,6 +32,8 @@
   --up-mark: #0ca30c;
   --down-mark: #e66767;
   --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  --band: #0e2033; --band-ink: #e8eef5; --on-accent: #0b1624;
+  --warn: #f0b84a; --warn-mark: #c98500;
   color-scheme: dark;
 }
 /* Color-blind-friendly gain/loss: blue and orange instead of green and red. */
@@ -206,8 +210,54 @@ details.why > summary:hover h2 { text-decoration: underline; text-decoration-col
 .auth input { font: inherit; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); }
 .auth input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .auth .hint { font-size: 0.8125rem; color: var(--ink-3, var(--ink-2)); }
-.auth .primary { padding: 11px 14px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; }
+.auth .primary { padding: 11px 14px; border: 1px solid var(--accent); border-radius: 6px; font-weight: 600; }
 .auth .primary:disabled { opacity: 0.6; cursor: wait; }
 .auth .form-error { margin: 0; color: var(--down); }
 .auth .switch { margin: 0 0 8px; }
 @media (max-width: 640px) { .acct .who { display: none; } }
+
+
+/* ---- colour layer ---- */
+/* Header band */
+.bar { background: var(--band); border-bottom: 0; }
+.bar .brand { color: var(--band-ink); }
+.bar .search input { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.28); color: var(--band-ink); }
+.bar .search input::placeholder { color: rgba(242,246,250,.72); }
+.bar .search input:focus-visible { outline-color: var(--band-ink); }
+.bar .signin, .bar details.display summary, .bar .acct .linkish { color: var(--band-ink); }
+.bar .signin:hover, .bar details.display summary:hover { background: rgba(255,255,255,.14); }
+.bar .acct .who { color: rgba(242,246,250,.8); }
+.bar :focus-visible { outline-color: var(--band-ink); }
+.panel, .hits { color: var(--ink); }
+.panel :focus-visible, .hits :focus-visible { outline-color: var(--accent); }
+
+/* Gain / loss: tinted pill; the arrow and sign still carry the direction */
+.pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.pill.up { background: color-mix(in srgb, var(--up) 12%, transparent); }
+.pill.down { background: color-mix(in srgb, var(--down) 12%, transparent); }
+.pill.flat { background: var(--wash); }
+.brief .who .chg { margin-top: 6px; }
+.tag { display: inline-block; margin-top: 8px; padding: 2px 10px; border-radius: 999px; font-size: 0.8125rem; font-weight: 600; }
+.tag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn-mark) 20%, transparent); }
+
+/* Worth a look: a coloured edge shows which way each stock is leaning */
+.brief li.sig { border-left: 4px solid var(--rule); padding-left: 16px; }
+.brief li.sig.sig-up { border-left-color: var(--up-mark); background: color-mix(in srgb, var(--up-mark) 6%, transparent); }
+.brief li.sig.sig-down { border-left-color: var(--down-mark); background: color-mix(in srgb, var(--down-mark) 6%, transparent); }
+
+/* Watchlist trend lines */
+.spark { display: block; margin-left: auto; overflow: visible; }
+.spark.up polyline { stroke: var(--up-mark); } .spark.up circle { fill: var(--up-mark); }
+.spark.down polyline { stroke: var(--down-mark); } .spark.down circle { fill: var(--down-mark); }
+
+/* Actions use the accent colour */
+.ai button.go, .auth .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.ai button.go:hover:not(:disabled), .auth .primary:hover:not(:disabled) { filter: brightness(1.1); }
+.watchbtn { border-color: var(--accent); color: var(--accent); }
+.watchbtn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.watchbtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.section > h2 { border-left: 4px solid var(--accent); padding-left: 12px; }
+details.why > summary h2 { border-left: 4px solid var(--accent); padding-left: 12px; }
+.ai .out { border-left-color: var(--accent); }
+#brief-h { border-left: 4px solid var(--accent); padding-left: 12px; }

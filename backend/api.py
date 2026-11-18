@@ -23,6 +23,7 @@ try:
 except ImportError:
     pass
 
+import ai
 import auth
 import core
 from db import User, WatchlistItem, get_db, init_db
@@ -185,21 +186,44 @@ def stock_intraday(ticker: str):
 
 
 @app.post("/api/stocks/{ticker}/ai-summary")
-def ai_summary(ticker: str, x_anthropic_key: Optional[str] = Header(default=None)):
-    """Plain-English AI summary. The caller supplies their own Anthropic key in the
-    X-Anthropic-Key header; it is used for this one request and never stored or logged."""
-    if not x_anthropic_key:
-        raise HTTPException(400, "Send your Anthropic API key in the X-Anthropic-Key header.")
+def ai_summary(
+    ticker: str,
+    x_anthropic_key: Optional[str] = Header(default=None),
+    user: User = Depends(auth.current_user),
+    db: Session = Depends(get_db),
+):
+    """Plain-English explanation of today's move, plus the headlines that matter.
+    Requires sign-in. Uses the server's Anthropic key and counts against the user's
+    daily limit. A caller may instead send their own key in X-Anthropic-Key; that key
+    is used for this one request, never stored or logged, and is not limited."""
+    own_key = (x_anthropic_key or "").strip()
+    key = own_key or ai.server_key()
+    if not key:
+        raise HTTPException(503, "AI explanations aren't set up on this server yet.")
+
     ticker = core.normalize_ticker(ticker)
     hist = core.add_smas(load_history(ticker, SMA_FETCH_PERIOD))
-    explanation = core.explain_price_move(ticker, hist, core.get_news(ticker))
+    news = core.get_news(ticker, max_items=10)
+    explanation = core.explain_price_move(ticker, hist, news)
     if explanation["pct_change"] is None:
         raise HTTPException(422, "Not enough price history to summarize.")
+
+    counted = not own_key
+    if counted:
+        ai.reserve(db, user.id)  # only after the data checks, so bad requests don't cost quota
     try:
-        text = core.generate_ai_move_summary(x_anthropic_key, ticker, explanation)
-    except Exception as e:
-        raise HTTPException(502, f"AI summary failed: {e}")
-    return {"ticker": ticker, "summary": text}
+        result = ai.explain_move(key, ticker, explanation, news)
+    except Exception:
+        ai.log.exception("AI call failed for %s", ticker)
+        if counted:
+            ai.refund(db, user.id)
+        raise HTTPException(502, "The AI service didn't respond. Try again in a moment.")
+    return {"ticker": ticker, **result, "usage": ai.usage(db, user.id)}
+
+
+@app.get("/api/ai/usage")
+def ai_usage(user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
+    return {**ai.usage(db, user.id), "enabled": bool(ai.server_key())}
 
 
 # ---------------------------------------------------------------- accounts

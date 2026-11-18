@@ -3,8 +3,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import PriceChart, { ChartType, SMA_VARS } from "@/components/PriceChart";
-import { api, Bar, Detail, SMA_WINDOWS } from "@/lib/api";
+import { AiResult, AiUsage, api, Bar, Detail, SMA_WINDOWS } from "@/lib/api";
 import { arrow, daysUntil, dirOf, earningsLabel, fmtDate, fmtNum, fmtSigned, venue } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
 import { useWatchlist } from "@/lib/watchlist";
 
 const RANGES = ["1mo", "6mo", "1y", "5y"] as const;
@@ -41,16 +42,20 @@ export default function StockPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const [aiKey, setAiKey] = useState("");
-  const [aiText, setAiText] = useState("");
+  const { token } = useAuth();
+  const [ai, setAi] = useState<AiResult | null>(null);
+  const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiErr, setAiErr] = useState("");
 
-  useEffect(() => { setAiKey(localStorage.getItem("anthropic_key") ?? ""); }, []);
+  useEffect(() => {
+    if (!token) { setAiUsage(null); return; }
+    api.aiUsage(token).then(setAiUsage).catch(() => setAiUsage(null));
+  }, [token]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setError(""); setAiText("");
+    setLoading(true); setError(""); setAi(null); setAiErr("");
     Promise.all([api.detail(ticker, range), api.history(ticker, range)])
       .then(([d, h]) => { if (!cancelled) { setDetail(d); setBars(h.bars); } })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Something went wrong."); })
@@ -67,10 +72,12 @@ export default function StockPage() {
   }, [detail]);
 
   async function explain() {
-    setAiBusy(true); setAiErr(""); setAiText("");
+    if (!token) return;
+    setAiBusy(true); setAiErr(""); setAi(null);
     try {
-      localStorage.setItem("anthropic_key", aiKey.trim());
-      setAiText(await api.aiSummary(ticker, aiKey.trim()));
+      const r = await api.aiSummary(ticker, token);
+      setAi(r);
+      setAiUsage((u) => ({ enabled: true, ...(u ?? {}), ...r.usage }));
     } catch (e) {
       setAiErr(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -116,7 +123,7 @@ export default function StockPage() {
       <div className="priceline num">
         <span className="big">{fmtNum(s.price)} <span className="muted" style={{ fontSize: "1rem", fontWeight: 400 }}>{s.currency}</span></span>
         {change !== null && (
-          <span className={d}>{arrow(d)} {fmtSigned(change)} ({fmtSigned(e.pct_change, 2, "%")}) today</span>
+          <span className={`pill ${d}`}>{arrow(d)} {fmtSigned(change)} ({fmtSigned(e.pct_change, 2, "%")}) today</span>
         )}
         {afterHours && (
           <span className="ah">
@@ -216,13 +223,41 @@ export default function StockPage() {
       <section className="section" aria-label="Plain-English summary">
         <h2>In plain English</h2>
         <div className="ai">
-          <p className="sub">Turns the notes above into a short summary using Claude. It runs only when you ask, with your own Anthropic key, which stays in this browser.</p>
-          <p style={{ margin: "0 0 12px" }}>
-            <input type="password" aria-label="Anthropic API key" placeholder="Anthropic API key" value={aiKey} onChange={(ev) => setAiKey(ev.target.value)} />
-          </p>
-          <button className="go" disabled={!aiKey.trim() || aiBusy} onClick={explain}>{aiBusy ? "Writing…" : "Explain this move"}</button>
+          {!token ? (
+            <p className="sub"><Link href="/login">Sign in</Link> to get a short AI explanation of this move and the headlines that matter.</p>
+          ) : aiUsage && !aiUsage.enabled ? (
+            <p className="sub">AI explanations aren&rsquo;t switched on for this site yet.</p>
+          ) : (
+            <>
+              <p className="sub">
+                Claude turns the notes above into a short explanation and picks the headlines that bear on today&rsquo;s move.
+                {aiUsage && <> You&rsquo;ve used {aiUsage.used} of {aiUsage.limit} today.</>}
+              </p>
+              <button className="go" disabled={aiBusy || (!!aiUsage && aiUsage.used >= aiUsage.limit)} onClick={explain}>
+                {aiBusy ? "Writing…" : "Explain this move"}
+              </button>
+            </>
+          )}
           {aiErr && <p className="msg err" role="alert">{aiErr}</p>}
-          {aiText && <p className="out">{aiText}</p>}
+          {ai && (
+            <>
+              <p className="out">{ai.summary}</p>
+              {ai.headlines.length > 0 && (
+                <div className="related" style={{ marginTop: 12 }}>
+                  <p className="sub" style={{ margin: "0 0 4px" }}>Headlines that bear on this move</p>
+                  <ul>
+                    {ai.headlines.map((n, i) => (
+                      <li key={i}>
+                        {n.link ? <a href={n.link} target="_blank" rel="noopener noreferrer">{n.title}</a> : n.title}
+                        <span className="pub">{n.publisher}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="fine">AI-written from the notes above. It can be wrong, and it is not financial advice.</p>
+            </>
+          )}
         </div>
       </section>
 

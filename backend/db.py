@@ -64,6 +64,17 @@ class WatchlistItem(Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AiUsage(Base):
+    """How many AI requests a user has made on a given day (UTC). user_id 0 is the
+    shared counter for everyone, used as a global spending cap."""
+    __tablename__ = "ai_usage"
+    __table_args__ = (UniqueConstraint("user_id", "day"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    day: Mapped[str] = mapped_column(String(10))
+    count: Mapped[int] = mapped_column(Integer, default=0)
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
 

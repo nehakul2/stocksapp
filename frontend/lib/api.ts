@@ -26,18 +26,21 @@ export type Bar = {
 };
 export type OverviewRow = {
   ticker: string; exchange: string; date: string | null; close: number | null; prev_close: number | null;
-  next_earnings: string; error?: string;
+  next_earnings: string; spark?: number[]; error?: string;
   sma_5?: number | null; sma_20?: number | null; sma_50?: number | null; sma_100?: number | null; sma_200?: number | null;
 };
 export type AttentionItem = { ticker: string; score: number; reasons: string[] };
 export type SearchHit = { symbol: string; name: string; exchange: string; type: string };
 
+export type AiUsage = { used: number; limit: number; enabled: boolean };
+export type AiResult = { ticker: string; summary: string; headlines: NewsItem[]; usage: { used: number; limit: number } };
+
 export const SMA_WINDOWS = [5, 20, 50, 100, 200] as const;
 
-async function get<T>(path: string): Promise<T> {
+async function get<T>(path: string, token?: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API}${path}`, { cache: "no-store" });
+    res = await fetch(`${API}${path}`, { cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : undefined });
   } catch {
     throw new Error(`Can't reach the API at ${API}. Is it running?`);
   }
@@ -58,10 +61,16 @@ export const api = {
   attention: (t: string[]) => get<{ items: AttentionItem[] }>(`/api/attention?tickers=${list(t)}`),
   detail: (t: string, range: string) => get<Detail>(`/api/stocks/${sym(t)}?range=${range}`),
   history: (t: string, range: string) => get<{ bars: Bar[] }>(`/api/stocks/${sym(t)}/history?range=${range}`),
-  async aiSummary(t: string, key: string): Promise<string> {
-    const res = await fetch(`${API}/api/stocks/${sym(t)}/ai-summary`, { method: "POST", headers: { "X-Anthropic-Key": key } });
+  aiUsage: (token: string) => get<AiUsage>("/api/ai/usage", token),
+  async aiSummary(t: string, token: string): Promise<AiResult> {
+    let res: Response;
+    try {
+      res = await fetch(`${API}/api/stocks/${sym(t)}/ai-summary`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      throw new Error(`Can't reach the API at ${API}. Is it running?`);
+    }
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail ?? `Request failed (${res.status})`);
-    return body.summary as string;
+    if (!res.ok) throw Object.assign(new Error(body.detail ?? `Request failed (${res.status})`), { status: res.status });
+    return body as AiResult;
   },
 };

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Sparkline from "@/components/Sparkline";
 import { useCallback, useEffect, useState } from "react";
 import { api, AttentionItem, OverviewRow, SMA_WINDOWS } from "@/lib/api";
 import { arrow, dirOf, earningsLabel, fmtNum, fmtSigned, venue } from "@/lib/format";
@@ -66,10 +67,11 @@ export default function Home() {
               const ch = changeFor(a.ticker);
               const d = dirOf(ch);
               return (
-                <li key={a.ticker}>
+                <li key={a.ticker} className={`sig sig-${d}`}>
                   <div className="who">
                     <Link href={`/stock/${encodeURIComponent(a.ticker)}`}>{a.ticker}</Link>
-                    {ch !== null && <span className={`chg num ${d}`}>{arrow(d)} {fmtSigned(ch, 2, "%")}</span>}
+                    {ch !== null && <span className={`chg num ${d}`}><span className={`pill ${d}`}>{arrow(d)} {fmtSigned(ch, 2, "%")}</span></span>}
+                    {a.reasons.some((r) => r.startsWith("Earnings")) && <span className="tag warn">Earnings soon</span>}
                   </div>
                   <ul className="why">{a.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
                 </li>
@@ -89,7 +91,7 @@ export default function Home() {
             <table className="ledger">
               <thead>
                 <tr>
-                  <th>Ticker</th><th className="l">Exchange</th><th>Close</th><th>Day</th>
+                  <th>Ticker</th><th className="l">Exchange</th><th>Close</th><th>Day</th><th>30 days</th>
                   {SMA_WINDOWS.map((w) => <th key={w}>SMA {w}</th>)}
                   <th>Earnings</th><th aria-label="Remove" />
                 </tr>
@@ -100,7 +102,7 @@ export default function Home() {
                     return (
                       <tr key={r.ticker}>
                         <td><Link className="tk" href={`/stock/${encodeURIComponent(r.ticker)}`}>{r.ticker}</Link></td>
-                        <td colSpan={9} className="l err">Couldn&rsquo;t load this one. Check the symbol or try again in a minute.</td>
+                        <td colSpan={10} className="l err">Couldn&rsquo;t load this one. Check the symbol or try again in a minute.</td>
                         <td className="last"><button className="rm" aria-label={`Remove ${r.ticker}`} onClick={() => remove(r.ticker)}>{"✕"}</button></td>
                       </tr>
                     );
@@ -112,7 +114,8 @@ export default function Home() {
                       <td><Link className="tk" href={`/stock/${encodeURIComponent(r.ticker)}`}>{r.ticker}</Link></td>
                       <td className="l muted">{venue(r.ticker, r.exchange)}</td>
                       <td>{fmtNum(r.close)}</td>
-                      <td className={d}>{arrow(d)} {fmtSigned(ch, 2, "%")}</td>
+                      <td><span className={`pill ${d}`}>{arrow(d)} {fmtSigned(ch, 2, "%")}</span></td>
+                      <td><Sparkline values={r.spark} /></td>
                       {SMA_WINDOWS.map((w) => <td key={w}>{fmtNum(r[`sma_${w}` as const])}</td>)}
                       <td>{earningsLabel(r.next_earnings)}</td>
                       <td className="last"><button className="rm" aria-label={`Remove ${r.ticker} from watchlist`} onClick={() => remove(r.ticker)}>{"✕"}</button></td>

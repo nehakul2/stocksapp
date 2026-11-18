@@ -309,6 +309,8 @@ def build_sma_table(tickers: list, period: str) -> pd.DataFrame:
                 "close": round(float(latest["Close"]), 2),
                 "prev_close": round(float(hist_with_sma.iloc[-2]["Close"]), 2) if len(hist_with_sma) >= 2 else None,
                 "next_earnings": next_earnings,
+                # last 30 closes, for the small trend line in the watchlist
+                "spark": [round(float(v), 2) for v in hist_with_sma["Close"].tail(30).dropna()],
             }
             for window in SMA_WINDOWS:
                 value = latest.get(f"SMA_{window}")
