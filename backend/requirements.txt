@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+yfinance
+pandas
+numpy
+scikit-learn
+anthropic
+requests
+sqlalchemy
+psycopg[binary]
+pyjwt
+python-dotenv
