@@ -68,15 +68,30 @@ export default function AlertsPanel({ ticker }: { ticker: string }) {
     load(); refresh();
   }
 
+  async function toggle(r: AlertRule) {
+    if (!token) return;
+    setErr("");
+    try {
+      await api.pauseAlert(token, r.id, !r.paused);
+    } catch (x) { setErr(x instanceof Error ? x.message : "Something went wrong."); }
+    load(); refresh();
+  }
+
   return (
     <div className="alertpanel">
       <p className="sub">On your &ldquo;{listName}&rdquo; watchlist. Alerts show in the bell at the top of the page and on the <Link href="/alerts">Alerts page</Link>.</p>
       {rules.length === 0 ? <p className="fine" style={{ marginTop: 0 }}>No alerts on {ticker} yet.</p> : (
         <ul className="rules">
           {rules.map((r) => (
-            <li key={r.id}>
-              <span>{r.label}{firingSince.has(r.id) && <span className="tag warn" style={{ marginLeft: 10, marginTop: 0 }}>Firing{firingSince.get(r.id) ? ` since ${fmtSince(firingSince.get(r.id))}` : " now"}</span>}</span>
-              <button className="rm" aria-label={`Remove alert: ${r.label}`} onClick={() => remove(r.id)}>{"✕"}</button>
+            <li key={r.id} className={r.paused ? "off" : undefined}>
+              <span>{r.label}
+                {r.paused && <span className="tag" style={{ marginLeft: 10, marginTop: 0 }}>Off</span>}
+                {!r.paused && firingSince.has(r.id) && <span className="tag warn" style={{ marginLeft: 10, marginTop: 0 }}>Firing{firingSince.get(r.id) ? ` since ${fmtSince(firingSince.get(r.id))}` : " now"}</span>}
+              </span>
+              <span className="rowact">
+                <button className="linkish" aria-label={`${r.paused ? "Turn on" : "Turn off"} alert: ${r.label}`} onClick={() => toggle(r)}>{r.paused ? "Turn on" : "Turn off"}</button>
+                <button className="rm" aria-label={`Remove alert: ${r.label}`} onClick={() => remove(r.id)}>{"✕"}</button>
+              </span>
             </li>
           ))}
         </ul>

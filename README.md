@@ -92,6 +92,7 @@ cd backend && pip install pytest && pytest
 | PATCH, DELETE | /api/watchlists/{id} | rename / delete a watchlist |
 | PUT | /api/watchlists/{id}/tickers | set a watchlist's tickers |
 | GET, POST | /api/watchlists/{id}/alerts | list / add alerts |
+| PATCH | /api/alerts/{id} | turn an alert off or on (`{"paused": true}`) |
 | DELETE | /api/alerts/{id} | remove an alert |
 | POST | /api/alerts/check | check all alerts now, returns what is firing |
 | GET, DELETE | /api/alerts/history | alerts that fired |

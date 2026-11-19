@@ -118,6 +118,13 @@ class UserSettings(Base):
     email_alerts: Mapped[bool] = mapped_column(default=False)
 
 
+class AlertPause(Base):
+    """An alert the user has switched off. No row means the alert is on. Kept in its own
+    table because create_all can add tables but cannot add a column to an existing one."""
+    __tablename__ = "alert_pauses"
+    alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True)
+
+
 class AlertEmail(Base):
     """Marks an alert as 'already emailed while it keeps firing'. The row is removed when
     the alert stops firing, so it can email again if it fires later."""
