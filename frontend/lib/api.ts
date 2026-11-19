@@ -44,6 +44,16 @@ export type Peers = {
   peer_median_day_pct: number | null; peer_median_month_pct: number | null;
 };
 
+export type RiskInfo = {
+  label: string; volatility_pct: number; market_volatility_pct: number | null; typical_day_pct: number;
+  worst_day: { date: string; pct: number }; max_drawdown_pct: number; from_high_pct: number; beta: number | null; lines: string[];
+};
+export type Fundamentals = {
+  market_cap: number | null; pe: number | null; forward_pe: number | null; eps: number | null;
+  dividend_yield_pct: number | null; sector: string; industry: string;
+};
+export type RiskReply = { ticker: string; risk: RiskInfo | null; fundamentals: Fundamentals | null };
+
 export type WatchlistDto = { id: number; name: string; tickers: string[] };
 export type AlertType = "price_above" | "price_below" | "sma_cross_above" | "sma_cross_below";
 export type AlertRule = { id: number; watchlist_id: number; ticker: string; type: AlertType; value: number; label: string; paused: boolean };
@@ -103,6 +113,7 @@ export const api = {
   detail: (t: string, range: string) => get<Detail>(`/api/stocks/${sym(t)}?range=${range}`),
   history: (t: string, range: string) => get<{ bars: Bar[] }>(`/api/stocks/${sym(t)}/history?range=${range}`),
   peers: (t: string) => get<Peers>(`/api/stocks/${sym(t)}/peers`),
+  risk: (t: string) => get<RiskReply>(`/api/stocks/${sym(t)}/risk`),
   watchlists: (token: string) => authed<{ watchlists: WatchlistDto[] }>("/api/watchlists", token),
   createWatchlist: (token: string, name: string) => authed<WatchlistDto>("/api/watchlists", token, "POST", { name }),
   renameWatchlist: (token: string, id: number, name: string) => authed<WatchlistDto>(`/api/watchlists/${id}`, token, "PATCH", { name }),

@@ -60,3 +60,12 @@ export function fmtSince(iso: string | null | undefined): string {
   const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   return d.toDateString() === new Date().toDateString() ? time : fmtWhen(iso);
 }
+
+export function fmtBig(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1e12) return `$${(n / 1e12).toFixed(2)} trillion`;
+  if (a >= 1e9) return `$${(n / 1e9).toFixed(1)} billion`;
+  if (a >= 1e6) return `$${(n / 1e6).toFixed(0)} million`;
+  return `$${n.toFixed(0)}`;
+}
