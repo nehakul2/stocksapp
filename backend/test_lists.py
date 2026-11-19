@@ -219,3 +219,18 @@ def test_history_and_check_carry_timestamps():
     assert abs((datetime.fromisoformat(since[:-1]).replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).total_seconds()) < 120
     again = client.post("/api/alerts/check", headers=h).json()["firing"][0]["since"]
     assert again == since  # the second check doesn't move "first seen"
+
+
+
+def test_list_names_are_unique_ignoring_capitals_but_a_list_can_change_its_own_case():
+    h = new_user()
+    first = client.get("/api/watchlists", headers=h).json()["watchlists"][0]
+    banks = client.post("/api/watchlists", headers=h, json={"name": "Banks"})
+    assert banks.status_code == 201
+    assert client.post("/api/watchlists", headers=h, json={"name": "banks"}).status_code == 409
+    assert client.post("/api/watchlists", headers=h, json={"name": "  BANKS "}).status_code == 409
+    # renaming onto another list's name, in any case, is refused
+    assert client.patch(f"/api/watchlists/{first['id']}", headers=h, json={"name": "bAnKs"}).status_code == 409
+    # a list may change its own capitalization
+    r = client.patch(f"/api/watchlists/{banks.json()['id']}", headers=h, json={"name": "BANKS"})
+    assert r.status_code == 200 and r.json()["name"] == "BANKS"

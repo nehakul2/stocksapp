@@ -14,7 +14,13 @@ type DataState = {
   reloadLists: () => Promise<void>;
   check: AlertCheck | null;
   refreshAlerts: () => Promise<void>;
+  // These return an error message to show, or null on success.
+  createList: (name: string) => Promise<string | null>;
+  renameList: (id: number, name: string) => Promise<string | null>;
+  deleteList: (id: number) => Promise<string | null>;
 };
+
+const msg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong.");
 
 const Ctx = createContext<DataState | null>(null);
 
@@ -59,9 +65,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<DataState>(() => ({
     lists, activeId, tickers, check, reloadLists, refreshAlerts,
     setActive: setActiveId,
+    createList: async (name) => {
+      if (!token) return "Sign in first.";
+      try { const wl = await api.createWatchlist(token, name); setLists((ls) => [...ls, wl]); setActiveId(wl.id); return null; }
+      catch (e) { return msg(e); }
+    },
+    renameList: async (id, name) => {
+      if (!token) return "Sign in first.";
+      try { const wl = await api.renameWatchlist(token, id, name); setLists((ls) => ls.map((l) => (l.id === id ? { ...l, name: wl.name } : l))); return null; }
+      catch (e) { return msg(e); }
+    },
+    deleteList: async (id) => {
+      if (!token) return "Sign in first.";
+      try {
+        const r = await api.deleteWatchlist(token, id);
+        setLists(r.watchlists);
+        setActiveId((cur) => (cur === id ? r.watchlists[0]?.id ?? null : cur));
+        refreshAlerts();
+        return null;
+      } catch (e) { return msg(e); }
+    },
     add: async (t) => { const s = t.trim().toUpperCase(); if (s && !tickers.includes(s)) await save([...tickers, s]); },
     remove: async (t) => { await save(tickers.filter((x) => x !== t)); await refreshAlerts(); },
-  }), [lists, activeId, tickers, check, reloadLists, refreshAlerts, save]);
+  }), [lists, activeId, tickers, check, reloadLists, refreshAlerts, save, token]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
