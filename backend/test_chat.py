@@ -149,3 +149,52 @@ def test_non_json_reply_still_answers_without_actions():
     SEEN["reply"] = "Just plain words."
     body = ask(h).json()
     assert body["answer"] == "Just plain words." and body["actions"] == []
+
+
+def lists_named(h):
+    return [w["name"] for w in client.get("/api/watchlists", headers=h).json()["watchlists"]]
+
+
+def test_create_a_list_and_add_a_stock_becomes_one_confirmable_action():
+    # "Create a watchlist called Finance and add GS to it": the model often sends two actions.
+    h = new_user(); make_lists(h)
+    SEEN["reply"] = reply("I'll create Finance with GS.", [
+        {"type": "create_list", "name": "Finance", "tickers": []},
+        {"type": "add_to_list", "list": "Finance", "tickers": ["GS"]},
+    ])
+    body = ask(h, "create Finance and add Goldman Sachs").json()
+    assert len(body["actions"]) == 1
+    a = body["actions"][0]
+    assert a["type"] == "create_list" and a["tickers"] == ["GS"] and a["label"] == 'Create the watchlist "Finance" with GS'
+    assert "Note:" not in body["answer"]
+
+
+def test_spoken_list_names_still_match_the_real_list(monkeypatch):
+    monkeypatch.setenv("AI_DAILY_LIMIT", "50")
+    h = new_user()
+    wid = client.get("/api/watchlists", headers=h).json()["watchlists"][0]["id"]
+    client.patch(f"/api/watchlists/{wid}", headers=h, json={"name": "Ecomm"})
+    for said in ["e-comm", "E comm", "ecomm", "ECOMM", "eco"]:
+        SEEN["reply"] = reply("Adding Target.", [{"type": "add_to_list", "list": said, "tickers": ["TGT"]}])
+        acts = ask(h, "add Target to the ecomm watchlist").json()["actions"]
+        assert len(acts) == 1 and acts[0]["list"] == "Ecomm" and acts[0]["list_id"] == wid, said
+
+
+def test_ambiguous_or_unknown_list_is_explained_not_silently_dropped():
+    h = new_user()
+    for name in ["Tech", "Tech Giants"]:
+        client.post("/api/watchlists", headers=h, json={"name": name})
+    SEEN["reply"] = reply("Adding it.", [{"type": "add_to_list", "list": "Teh", "tickers": ["TGT"]}])
+    body = ask(h, "add Target to Teh").json()
+    assert body["actions"] == []
+    assert 'couldn\'t find a watchlist called "Teh"' in body["answer"] and '"Tech Giants"' in body["answer"]
+    # "tec" matches two lists, so it is not guessed either
+    SEEN["reply"] = reply("Adding it.", [{"type": "add_to_list", "list": "tec", "tickers": ["TGT"]}])
+    assert ask(h, "add Target to tec").json()["actions"] == []
+
+
+def test_create_for_a_list_that_exists_adds_instead():
+    h = new_user(); make_lists(h)
+    SEEN["reply"] = reply("ok", [{"type": "create_list", "name": "my watchlist", "tickers": ["GS"]}])
+    acts = ask(h, "create My Watchlist with GS").json()["actions"]
+    assert len(acts) == 1 and acts[0]["type"] == "add_to_list" and acts[0]["list"] == "My Watchlist"

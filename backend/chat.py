@@ -41,6 +41,9 @@ SYSTEM = (
     '  {"type": "add_to_list", "list": "<existing list name>", "tickers": ["TGT"]}\n'
     '  {"type": "remove_from_list", "list": "<existing list name>", "tickers": ["TGT"]}\n'
     '  {"type": "rename_list", "list": "<existing list name>", "new_name": "..."}\n'
+    "Use the watchlist names exactly as they appear in <data>, even if the person said them differently. "
+    "To create a list that should start with stocks, put the stocks in the create_list action's tickers "
+    "(do not add a separate add_to_list for a list that does not exist yet). "
     "The person will be shown each action and must confirm it, so say what you are proposing.\n\n"
     'Reply with JSON only: {"answer": "...", "actions": []}'
 )
@@ -123,12 +126,43 @@ def _label(a: dict) -> str:
     }[a["type"]]
 
 
-def clean_actions(raw, wls: list) -> list:
-    """Keeps only well-formed actions that make sense for the person's real watchlists."""
-    by_name = {w.name.lower(): w for w in wls}
-    out = []
+def _key(name: str) -> str:
+    """A list name reduced to letters and digits, so 'e-comm', 'E Comm' and 'Ecomm' match."""
+    return re.sub(r"[^a-z0-9]", "", str(name).lower())
+
+
+def _find(name: str, items: list):
+    """The item whose .name matches what was said: exactly, then ignoring punctuation and
+    spacing, then as the only list whose name starts with or contains it (3+ letters)."""
+    want = str(name).strip().lower()
+    for it in items:
+        if it.name.lower() == want:
+            return it
+    k = _key(name)
+    if not k:
+        return None
+    for it in items:
+        if _key(it.name) == k:
+            return it
+    if len(k) >= 3:
+        close = [it for it in items if _key(it.name).startswith(k) or k in _key(it.name)]
+        if len(close) == 1:
+            return close[0]
+    return None
+
+
+class _New:
+    """A list that an earlier action in the same reply will create."""
+    def __init__(self, name: str, action: dict):
+        self.name, self.action = name, action
+
+
+def clean_actions_report(raw, wls: list) -> tuple:
+    """Keeps only well-formed actions that make sense for the person's real watchlists.
+    Returns (actions, problems): problems are plain-language notes about what was left out."""
+    out, problems, fresh = [], [], []
     if not isinstance(raw, list):
-        return out
+        return out, problems
     for item in raw[:20]:
         if len(out) >= MAX_ACTIONS:
             break
@@ -142,25 +176,54 @@ def clean_actions(raw, wls: list) -> list:
                 tickers.append(sym)
         if kind == "create_list":
             name = " ".join(str(item.get("name", "")).split())
-            if not name or len(name) > 40 or name.lower() in by_name:
+            if not name or len(name) > 40:
                 continue
-            a = {"type": kind, "name": name, "tickers": tickers}
+            existing = _find(name, wls) if name.lower() in {w.name.lower() for w in wls} or _key(name) in {_key(w.name) for w in wls} else None
+            if existing is not None:
+                if tickers:  # "create X and add GS" when X exists: just add
+                    a = {"type": "add_to_list", "list": existing.name, "list_id": existing.id, "tickers": tickers}
+                else:
+                    problems.append(f'You already have a watchlist called "{existing.name}".')
+                    continue
+            else:
+                a = {"type": kind, "name": name, "tickers": tickers}
+                fresh.append(_New(name, a))
         elif kind in ("add_to_list", "remove_from_list"):
-            wl = by_name.get(str(item.get("list", "")).strip().lower())
-            if wl is None or not tickers:
+            raw_list = str(item.get("list", "")).strip()
+            wl = _find(raw_list, wls)
+            if wl is None and kind == "add_to_list":
+                pending = _find(raw_list, fresh)
+                if pending is not None:  # a list this same reply creates: fold the stocks into that one action
+                    merged = pending.action["tickers"] + [x for x in tickers if x not in pending.action["tickers"]]
+                    pending.action["tickers"] = merged[:MAX_ACTION_TICKERS]
+                    pending.action["label"] = _label(pending.action)
+                    continue
+            if wl is None:
+                problems.append(f'I couldn\'t find a watchlist called "{raw_list}".')
+                continue
+            if not tickers:
+                problems.append(f'I wasn\'t sure which stock to {"add to" if kind == "add_to_list" else "remove from"} "{wl.name}".')
                 continue
             a = {"type": kind, "list": wl.name, "list_id": wl.id, "tickers": tickers}
         elif kind == "rename_list":
-            wl = by_name.get(str(item.get("list", "")).strip().lower())
+            wl = _find(str(item.get("list", "")), wls)
             new = " ".join(str(item.get("new_name", "")).split())
-            if wl is None or not new or len(new) > 40 or new.lower() in by_name:
+            if wl is None:
+                problems.append(f'I couldn\'t find a watchlist called "{item.get("list", "")}".')
+                continue
+            if not new or len(new) > 40 or new.lower() in {w.name.lower() for w in wls}:
+                problems.append(f'I couldn\'t rename "{wl.name}" to "{new}".')
                 continue
             a = {"type": kind, "list": wl.name, "list_id": wl.id, "new_name": new}
         else:
             continue
         a["label"] = _label(a)
         out.append(a)
-    return out
+    return out, problems
+
+
+def clean_actions(raw, wls: list) -> list:
+    return clean_actions_report(raw, wls)[0]
 
 
 def parse_reply(raw: str) -> tuple:
@@ -215,4 +278,8 @@ def chat(
             ai.refund(db, user.id)
         raise HTTPException(502, "The AI service didn't respond. Try again in a moment.")
     answer, actions = parse_reply(raw)
-    return {"answer": answer, "actions": clean_actions(actions, wls), "usage": ai.usage(db, user.id)}
+    cleaned, problems = clean_actions_report(actions, wls)
+    if problems:
+        names = ", ".join(f'"{w.name}"' for w in wls)
+        answer += "\n\nNote: " + " ".join(dict.fromkeys(problems)) + f" Your watchlists are {names}."
+    return {"answer": answer, "actions": cleaned, "usage": ai.usage(db, user.id)}
