@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { AlertCheck, api, WatchlistDto } from "@/lib/api";
+import { AlertCheck, api, ChatAction, WatchlistDto } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const EVERY_MS = 5 * 60 * 1000;
@@ -18,6 +18,8 @@ type DataState = {
   createList: (name: string) => Promise<string | null>;
   renameList: (id: number, name: string) => Promise<string | null>;
   deleteList: (id: number) => Promise<string | null>;
+  // Carries out one change the chat proposed and the person confirmed.
+  runAction: (a: ChatAction) => Promise<string | null>;
 };
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong.");
@@ -75,6 +77,33 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       try { const wl = await api.renameWatchlist(token, id, name); setLists((ls) => ls.map((l) => (l.id === id ? { ...l, name: wl.name } : l))); return null; }
       catch (e) { return msg(e); }
     },
+    runAction: async (a) => {
+      if (!token) return "Sign in first.";
+      try {
+        if (a.type === "create_list") {
+          const wl = await api.createWatchlist(token, a.name ?? "");
+          let tk: string[] = [];
+          if (a.tickers?.length) tk = (await api.saveTickers(token, wl.id, a.tickers)).tickers;
+          setLists((ls) => [...ls, { ...wl, tickers: tk }]);
+          return null;
+        }
+        const target = lists.find((l) => l.id === a.list_id);
+        if (!target) return "That watchlist no longer exists.";
+        if (a.type === "rename_list") {
+          const wl = await api.renameWatchlist(token, target.id, a.new_name ?? "");
+          setLists((ls) => ls.map((l) => (l.id === target.id ? { ...l, name: wl.name } : l)));
+          return null;
+        }
+        const wanted = a.tickers ?? [];
+        const next = a.type === "add_to_list"
+          ? [...target.tickers, ...wanted.filter((x) => !target.tickers.includes(x))]
+          : target.tickers.filter((x) => !wanted.includes(x));
+        const saved = await api.saveTickers(token, target.id, next);
+        setLists((ls) => ls.map((l) => (l.id === target.id ? { ...l, tickers: saved.tickers } : l)));
+        if (a.type === "remove_from_list") refreshAlerts();
+        return null;
+      } catch (e) { return msg(e); }
+    },
     deleteList: async (id) => {
       if (!token) return "Sign in first.";
       try {
@@ -87,7 +116,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     },
     add: async (t) => { const s = t.trim().toUpperCase(); if (s && !tickers.includes(s)) await save([...tickers, s]); },
     remove: async (t) => { await save(tickers.filter((x) => x !== t)); await refreshAlerts(); },
-  }), [lists, activeId, tickers, check, reloadLists, refreshAlerts, save, token]);
+  }), [lists, activeId, tickers, check, reloadLists, refreshAlerts, save, token, lists]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

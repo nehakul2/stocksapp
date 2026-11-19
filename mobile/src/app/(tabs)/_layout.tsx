@@ -16,6 +16,7 @@ export default function TabsLayout() {
       headerStyle: { backgroundColor: t.bg }, headerTitleStyle: { color: t.ink }, headerShadowVisible: false,
     }}>
       <Tabs.Screen name="index" options={{ title: "Watchlist", tabBarIcon: ({ color }) => <Glyph c="★" color={color} /> }} />
+      <Tabs.Screen name="chat" options={{ title: "Chat", tabBarIcon: ({ color }) => <Glyph c="💬︎" color={color} /> }} />
       <Tabs.Screen name="alerts" options={{ title: "Alerts", tabBarBadge: firing > 0 ? firing : undefined, tabBarIcon: ({ color }) => <Glyph c="🔔︎" color={color} /> }} />
     </Tabs>
   );
