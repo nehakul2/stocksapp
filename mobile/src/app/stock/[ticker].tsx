@@ -3,9 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import AlertRules from "@/components/AlertRules";
 import { Button, Card, ErrorText, Heading } from "@/components/ui";
-import { AiResult, AiUsage, api, Detail, Peers } from "@/lib/api";
+import { AiResult, AiUsage, api, Detail, Peers, RiskReply } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { earningsLabel, fmtNum, fmtSigned } from "@/lib/format";
+import { earningsLabel, fmtBig, fmtNum, fmtSigned } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
 
 export default function StockScreen() {
@@ -15,6 +15,7 @@ export default function StockScreen() {
   const ticker = decodeURIComponent(String(raw));
   const [detail, setDetail] = useState<Detail | null>(null);
   const [peers, setPeers] = useState<Peers | null>(null);
+  const [riskData, setRiskData] = useState<RiskReply | null>(null);
   const [ai, setAi] = useState<AiResult | null>(null);
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [err, setErr] = useState("");
@@ -26,6 +27,7 @@ export default function StockScreen() {
     try { setDetail(await api.detail(ticker, "6mo")); }
     catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load this stock."); }
     api.peers(ticker).then(setPeers).catch(() => setPeers(null));
+    api.risk(ticker).then(setRiskData).catch(() => setRiskData(null));
   }, [ticker]);
 
   useEffect(() => { load(); }, [load]);
@@ -110,6 +112,38 @@ export default function StockScreen() {
                 <Text style={{ width: 70, textAlign: "right", color: !r.month_pct ? t.muted : r.month_pct > 0 ? t.up : t.down, fontVariant: ["tabular-nums"] }}>{fmtSigned(r.month_pct, 1, "%")}</Text>
               </View>
             ))}
+          </Card>
+        </>
+      )}
+
+      {riskData && (riskData.risk || riskData.fundamentals) && (
+        <>
+          <Heading>Risk and basics</Heading>
+          <Card>
+            {riskData.risk && (
+              <>
+                <Text style={{ color: t.ink, fontWeight: "700", marginBottom: 6 }}>Past year: {riskData.risk.label}</Text>
+                {riskData.risk.lines.map((l, i) => <Text key={i} style={{ color: t.ink2, lineHeight: 21, marginTop: i ? 6 : 0 }}>{l}</Text>)}
+              </>
+            )}
+            {riskData.fundamentals && (
+              <View style={{ marginTop: riskData.risk ? 12 : 0 }}>
+                <Text style={{ color: t.ink, fontWeight: "700", marginBottom: 4 }}>Company basics</Text>
+                {([
+                  ["Market value", fmtBig(riskData.fundamentals.market_cap)],
+                  ["Price to earnings", riskData.fundamentals.pe != null ? fmtNum(riskData.fundamentals.pe, 1) : "—"],
+                  ["Expected price to earnings", riskData.fundamentals.forward_pe != null ? fmtNum(riskData.fundamentals.forward_pe, 1) : "—"],
+                  ["Dividend yield", riskData.fundamentals.dividend_yield_pct != null ? `${fmtNum(riskData.fundamentals.dividend_yield_pct, 2)}%` : "—"],
+                  ...(riskData.fundamentals.sector ? [["Sector", riskData.fundamentals.sector]] : []),
+                ] as [string, string][]).map(([k, v]) => (
+                  <View key={k} style={{ flexDirection: "row", paddingVertical: 3 }}>
+                    <Text style={{ flex: 1, color: t.ink2 }}>{k}</Text>
+                    <Text style={{ color: t.ink, fontVariant: ["tabular-nums"] }}>{v}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Text style={{ color: t.muted, fontSize: 12, marginTop: 10 }}>Based on the past year&apos;s prices. Not financial advice.</Text>
           </Card>
         </>
       )}

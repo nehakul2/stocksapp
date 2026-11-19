@@ -4,8 +4,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import AlertsPanel from "@/components/AlertsPanel";
 import PriceChart, { ChartType, SMA_VARS } from "@/components/PriceChart";
-import { AiResult, AiUsage, api, Bar, Detail, Peers, SMA_WINDOWS } from "@/lib/api";
-import { arrow, daysUntil, dirOf, earningsLabel, fmtDate, fmtNum, fmtSigned, venue } from "@/lib/format";
+import { AiResult, AiUsage, api, Bar, Detail, Peers, RiskReply, SMA_WINDOWS } from "@/lib/api";
+import { arrow, daysUntil, dirOf, earningsLabel, fmtDate, fmtNum, fmtSigned, venue, fmtBig } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { useWatchlist } from "@/lib/watchlist";
 
@@ -49,6 +49,8 @@ export default function StockPage() {
   const [csvTo, setCsvTo] = useState(today);
   const [peers, setPeers] = useState<Peers | null>(null);
   const [peersState, setPeersState] = useState<"loading" | "ok" | "none">("loading");
+  const [riskData, setRiskData] = useState<RiskReply | null>(null);
+  const [riskState, setRiskState] = useState<"loading" | "ok" | "none">("loading");
 
   const { token } = useAuth();
   const [ai, setAi] = useState<AiResult | null>(null);
@@ -77,6 +79,15 @@ export default function StockPage() {
     api.peers(ticker)
       .then((p) => { if (!cancelled) { setPeers(p); setPeersState(p.rows.some((r) => r.kind === "peer") ? "ok" : "none"); } })
       .catch(() => { if (!cancelled) setPeersState("none"); });
+    return () => { cancelled = true; };
+  }, [ticker]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRiskData(null); setRiskState("loading");
+    api.risk(ticker)
+      .then((r) => { if (!cancelled) { setRiskData(r); setRiskState("ok"); } })
+      .catch(() => { if (!cancelled) setRiskState("none"); });
     return () => { cancelled = true; };
   }, [ticker]);
 
@@ -273,6 +284,35 @@ export default function StockPage() {
             )}
           </>
         )}
+      </section>
+
+      <section className="section" aria-label="Risk and basics">
+        <h2>Risk and basics</h2>
+        {riskState === "loading" && <p className="skel">Working out how bumpy the past year has been&hellip;</p>}
+        {riskState === "none" && <p className="fine">Risk numbers aren&rsquo;t available for this one right now.</p>}
+        {riskState === "ok" && riskData && (
+          <div className="facts">
+            {riskData.risk && (
+              <div>
+                <h3>Past year: {riskData.risk.label}</h3>
+                {riskData.risk.lines.map((l, i) => <p key={i} className="fine" style={{ marginTop: i ? 8 : 0 }}>{l}</p>)}
+              </div>
+            )}
+            {riskData.fundamentals && (
+              <div>
+                <h3>Company basics</h3>
+                <dl className="rows">
+                  <div><dt>Market value</dt><dd>{fmtBig(riskData.fundamentals.market_cap)}</dd></div>
+                  <div><dt>Price to earnings</dt><dd>{riskData.fundamentals.pe != null ? fmtNum(riskData.fundamentals.pe, 1) : "—"}</dd></div>
+                  <div><dt>Expected price to earnings</dt><dd>{riskData.fundamentals.forward_pe != null ? fmtNum(riskData.fundamentals.forward_pe, 1) : "—"}</dd></div>
+                  <div><dt>Dividend yield</dt><dd>{riskData.fundamentals.dividend_yield_pct != null ? `${fmtNum(riskData.fundamentals.dividend_yield_pct, 2)}%` : "—"}</dd></div>
+                  {riskData.fundamentals.sector && <div><dt>Sector</dt><dd>{riskData.fundamentals.sector}</dd></div>}
+                </dl>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="fine">Based on the past year&rsquo;s prices. The past is not a promise about the future. Not financial advice.</p>
       </section>
 
       <section className="section" aria-label="Plain-English summary">

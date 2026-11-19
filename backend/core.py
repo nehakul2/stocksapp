@@ -669,6 +669,105 @@ def peer_facts(comparison: dict) -> str:
     return text
 
 
+# ------------------------------------------------------------------ risk and fundamentals
+TRADING_DAYS = 252
+
+
+def _daily_returns(ticker: str) -> pd.Series:
+    """Daily % returns for the last year, indexed by calendar date (no time zone)."""
+    close = fetch_history(ticker, "2y")["Close"].dropna()
+    idx = pd.DatetimeIndex(close.index)
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    close = pd.Series(close.to_numpy(dtype=float), index=idx.normalize())
+    return close.pct_change().dropna().tail(TRADING_DAYS)
+
+
+def risk_stats(ticker: str) -> dict:
+    """How bumpy the ride has been over the past year, in numbers a beginner can read.
+    Everything here is arithmetic on price history; nothing is predicted."""
+    t = ticker.upper()
+    close = fetch_history(t, "2y")["Close"].dropna().tail(TRADING_DAYS + 1)
+    rets = _daily_returns(t)
+    if len(rets) < 60:
+        raise ValueError("Not enough price history to describe the risk.")
+    vol = float(rets.std() * np.sqrt(TRADING_DAYS) * 100)
+    typical = float(rets.abs().mean() * 100)
+    worst_date, worst = rets.idxmin(), float(rets.min() * 100)
+    values = close.to_numpy(dtype=float)
+    peak = np.maximum.accumulate(values)
+    max_dd = float((values / peak - 1).min() * 100)
+    from_high = float((values[-1] / values.max() - 1) * 100)
+
+    market_vol = beta = None
+    try:
+        mrets = _daily_returns(MARKET_TICKER)
+        market_vol = float(mrets.std() * np.sqrt(TRADING_DAYS) * 100)
+        both = pd.concat([rets, mrets], axis=1, join="inner").dropna()
+        if len(both) >= 60 and both.iloc[:, 1].var() > 0:
+            beta = float(both.iloc[:, 0].cov(both.iloc[:, 1]) / both.iloc[:, 1].var())
+    except Exception:
+        pass
+
+    # The label is about how much the price swings compared with the market. Beta (how closely it
+    # follows the market) is shown separately, because a stock can swing a lot without following it.
+    ratio = vol / market_vol if market_vol else None
+    if ratio is None:
+        label = "unknown"
+    elif ratio >= 1.2:
+        label = "more volatile than the market"
+    elif ratio <= 0.8:
+        label = "calmer than the market"
+    else:
+        label = "about as volatile as the market"
+
+    lines = [f"Over the past year its price has swung about {vol:.0f}% a year" + (f" (the S&P 500: {market_vol:.0f}%)." if market_vol else ".")]
+    lines.append(f"A typical day moves about {typical:.1f}%. The worst day was {worst:+.1f}% on {worst_date:%b %d, %Y}.")
+    if from_high > -0.5:
+        lines.append(f"It is at its highest price of the past year. Its biggest drop from a peak in that time was {abs(max_dd):.0f}%.")
+    else:
+        lines.append(f"It is {abs(from_high):.0f}% below its highest price of the past year. Its biggest drop from a peak in that time was {abs(max_dd):.0f}%.")
+    if beta is not None:
+        lines.append(f"Beta {beta:.2f}: when the S&P 500 moves 1%, this stock has tended to move about {beta:.1f}%.")
+    return {
+        "label": label,
+        "volatility_pct": round(vol, 1),
+        "market_volatility_pct": None if market_vol is None else round(market_vol, 1),
+        "typical_day_pct": round(typical, 2),
+        "worst_day": {"date": f"{worst_date:%Y-%m-%d}", "pct": round(worst, 2)},
+        "max_drawdown_pct": round(max_dd, 1),
+        "from_high_pct": round(from_high, 1),
+        "beta": None if beta is None else round(beta, 2),
+        "lines": lines,
+    }
+
+
+@st_cache(21600)
+def get_fundamentals(ticker: str) -> dict:
+    """Company basics from Yahoo. Any field Yahoo doesn't have is None."""
+    try:
+        info = yf.Ticker(ticker).info or {}
+    except Exception:
+        info = {}
+
+    def num(key):
+        v = info.get(key)
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v else None
+
+    price = num("currentPrice") or num("regularMarketPrice")
+    rate = num("dividendRate")
+    return {
+        "market_cap": num("marketCap"),
+        "pe": num("trailingPE"),
+        "forward_pe": num("forwardPE"),
+        "eps": num("trailingEps"),
+        # worked out from the yearly dividend and the price, because Yahoo has changed how it reports yield
+        "dividend_yield_pct": round(rate / price * 100, 2) if rate and price else None,
+        "sector": info.get("sector") or "",
+        "industry": info.get("industry") or "",
+    }
+
+
 def generate_ai_move_summary(api_key: str, ticker: str, explanation: dict) -> str:
     """Turns the already-computed heuristic facts (price move, volume note,
     market comparison, earnings proximity, headlines) into a short

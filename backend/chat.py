@@ -99,6 +99,23 @@ def stock_context(ticker: str) -> list:
     except Exception:
         pass
     try:
+        lines += ["Risk over the past year: " + line for line in core.risk_stats(t)["lines"]]
+    except Exception:
+        pass
+    try:
+        f = core.get_fundamentals(t)
+        bits = [
+            f"market value {f['market_cap'] / 1e9:.1f} billion" if f["market_cap"] else "",
+            f"price-to-earnings {f['pe']:.1f}" if f["pe"] else "",
+            f"dividend yield {f['dividend_yield_pct']:.2f}%" if f["dividend_yield_pct"] else "",
+            f"sector {f['sector']}" if f["sector"] else "",
+        ]
+        bits = [b for b in bits if b]
+        if bits:
+            lines.append("Company basics: " + ", ".join(bits) + ".")
+    except Exception:
+        pass
+    try:
         note = core.peer_facts(core.compare_with_peers(t))
         if note:
             lines.append(note)

@@ -23,6 +23,8 @@ try:
 except ImportError:
     pass
 
+from contextlib import asynccontextmanager
+
 import ai
 import auth
 import core
@@ -31,7 +33,16 @@ import chat
 import notify
 from lists import router as lists_router
 
-app = FastAPI(title="Stock Insights API", version="0.2.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Runs once when the server starts: make sure the tables exist, then start the
+    background checker that sends alert emails."""
+    init_db()
+    notify.start_scheduler()
+    yield
+
+
+app = FastAPI(title="Stock Insights API", version="0.2.0", lifespan=lifespan)
 
 # Only these websites may call the API from a browser. In production set
 # CORS_ORIGINS to your frontend's address (comma-separated for several).
@@ -55,11 +66,6 @@ app.include_router(lists_router)
 app.include_router(notify.router)
 app.include_router(chat.router)
 
-
-@app.on_event("startup")
-def _startup():
-    init_db()
-    notify.start_scheduler()
 
 # Same ranges as the Streamlit app: (data to fetch, days of chart to show)
 # (data to fetch, days of chart to show). Every range fetches at least 2 years
@@ -176,6 +182,25 @@ def stock_peers(ticker: str):
         return clean(core.compare_with_peers(ticker))
     except Exception as e:
         raise HTTPException(404, str(e))
+
+
+@app.get("/api/stocks/{ticker}/risk")
+def stock_risk(ticker: str):
+    """How bumpy the past year has been, plus basic company numbers. Each part is left
+    out (null) if it can't be loaded, so one missing piece doesn't hide the other."""
+    ticker = core.normalize_ticker(ticker)
+    risk = None
+    try:
+        risk = core.risk_stats(ticker)
+    except Exception:
+        pass
+    try:
+        fundamentals = core.get_fundamentals(ticker)
+    except Exception:
+        fundamentals = None
+    if risk is None and fundamentals is None:
+        raise HTTPException(404, f"Couldn't load risk numbers for {ticker} right now.")
+    return clean({"ticker": ticker, "risk": risk, "fundamentals": fundamentals})
 
 
 @app.get("/api/stocks/{ticker}/history")

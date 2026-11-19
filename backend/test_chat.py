@@ -43,6 +43,8 @@ def patch(monkeypatch):
     monkeypatch.setattr(core, "get_next_earnings_date", lambda t: "2026-11-19")
     monkeypatch.setattr(core, "get_stock_summary", lambda t: {"name": "Target Corporation", "ticker": t, "price": 150.0, "currency": "USD",
                         "high_52wk": 170, "low_52wk": 90, "exchange": "NYSE"})
+    monkeypatch.setattr(core, "get_fundamentals", lambda t: {"market_cap": 80e9, "pe": 18.2, "forward_pe": None, "eps": None,
+                        "dividend_yield_pct": 3.1, "sector": "Consumer Defensive", "industry": ""})
     monkeypatch.setattr(core, "find_peers", lambda t: {"sector": "", "industry": "", "source": "none", "peers": []})
     monkeypatch.setenv("ANTHROPIC_API_KEY", "server-key")
     monkeypatch.setenv("AI_DAILY_LIMIT", "3")
@@ -198,3 +200,11 @@ def test_create_for_a_list_that_exists_adds_instead():
     SEEN["reply"] = reply("ok", [{"type": "create_list", "name": "my watchlist", "tickers": ["GS"]}])
     acts = ask(h, "create My Watchlist with GS").json()["actions"]
     assert len(acts) == 1 and acts[0]["type"] == "add_to_list" and acts[0]["list"] == "My Watchlist"
+
+
+def test_chat_knows_the_risk_and_company_basics():
+    h = new_user()
+    ask(h, "How risky is it?", ticker="TGT")
+    system = SEEN["system"]
+    assert "Risk over the past year:" in system and "Company basics: market value 80.0 billion" in system
+    assert "dividend yield 3.10%" in system
