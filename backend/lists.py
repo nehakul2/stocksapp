@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import core
-from db import Alert, AlertEvent, User, Watchlist, WatchlistItem, WatchlistTicker, get_db
+from db import Alert, AlertEmail, AlertEvent, AlertPause, User, Watchlist, WatchlistItem, WatchlistTicker, get_db
 
 router = APIRouter()
 
@@ -59,9 +59,23 @@ def tickers_of(db: Session, watchlist_id: int) -> list:
     return [r.ticker for r in rows]
 
 
-def alert_json(a: Alert) -> dict:
+def alert_json(a: Alert, paused: bool = False) -> dict:
     return {"id": a.id, "watchlist_id": a.watchlist_id, "ticker": a.ticker, "type": a.type,
-            "value": a.value, "label": core.alert_label(a.type, a.value)}
+            "value": a.value, "label": core.alert_label(a.type, a.value), "paused": paused}
+
+
+def drop_alert_extras(db: Session, alert_ids: list) -> None:
+    """Removes the pause and 'already emailed' marks of alerts about to be deleted. Postgres
+    does this by itself (cascade); SQLite doesn't enforce it and would reuse the ids."""
+    if alert_ids:
+        db.query(AlertPause).filter(AlertPause.alert_id.in_(alert_ids)).delete(synchronize_session=False)
+        db.query(AlertEmail).filter(AlertEmail.alert_id.in_(alert_ids)).delete(synchronize_session=False)
+
+
+def paused_ids(db: Session, alert_ids: list) -> set:
+    if not alert_ids:
+        return set()
+    return set(db.scalars(select(AlertPause.alert_id).where(AlertPause.alert_id.in_(alert_ids))))
 
 
 def clean_name(raw: str) -> str:
@@ -85,6 +99,8 @@ def set_tickers(db: Session, wl: Watchlist, raw: list) -> list:
     for i, t in enumerate(tickers):
         db.add(WatchlistTicker(watchlist_id=wl.id, ticker=t, position=i))
     # Alerts on tickers that were removed no longer mean anything.
+    gone = list(db.scalars(select(Alert.id).where(Alert.watchlist_id == wl.id, Alert.ticker.notin_(tickers or [""]))))
+    drop_alert_extras(db, gone)
     db.query(Alert).filter(Alert.watchlist_id == wl.id, Alert.ticker.notin_(tickers or [""])).delete(synchronize_session=False)
     db.commit()
     return tickers
@@ -137,6 +153,7 @@ def delete_watchlist(watchlist_id: int, user: User = Depends(auth.current_user),
     if len(ensure_watchlists(db, user)) <= 1:
         raise HTTPException(400, "You need at least one watchlist.")
     db.query(WatchlistTicker).filter(WatchlistTicker.watchlist_id == wl.id).delete()
+    drop_alert_extras(db, list(db.scalars(select(Alert.id).where(Alert.watchlist_id == wl.id))))
     db.query(Alert).filter(Alert.watchlist_id == wl.id).delete()
     db.delete(wl)
     db.commit()
@@ -170,8 +187,9 @@ class AlertBody(BaseModel):
 @router.get("/api/watchlists/{watchlist_id}/alerts")
 def list_alerts(watchlist_id: int, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
     wl = get_owned(db, user, watchlist_id)
-    rows = db.scalars(select(Alert).where(Alert.watchlist_id == wl.id).order_by(Alert.id))
-    return {"alerts": [alert_json(a) for a in rows]}
+    rows = list(db.scalars(select(Alert).where(Alert.watchlist_id == wl.id).order_by(Alert.id)))
+    off = paused_ids(db, [a.id for a in rows])
+    return {"alerts": [alert_json(a, a.id in off) for a in rows]}
 
 
 @router.post("/api/watchlists/{watchlist_id}/alerts", status_code=201)
@@ -209,16 +227,44 @@ def delete_alert(alert_id: int, user: User = Depends(auth.current_user), db: Ses
     if alert is None:
         raise HTTPException(404, "Alert not found.")
     get_owned(db, user, alert.watchlist_id)  # 404 if it belongs to someone else
+    drop_alert_extras(db, [alert.id])
     db.delete(alert)
     db.commit()
     return {"ok": True}
 
 
+class PauseBody(BaseModel):
+    paused: bool
+
+
+@router.patch("/api/alerts/{alert_id}")
+def pause_alert(alert_id: int, body: PauseBody, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """Switches one alert off (paused) or back on. A paused alert is never checked, never
+    shows as firing and never emails."""
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(404, "Alert not found.")
+    get_owned(db, user, alert.watchlist_id)  # 404 if it belongs to someone else
+    row = db.get(AlertPause, alert_id)
+    if body.paused and row is None:
+        db.add(AlertPause(alert_id=alert_id))
+        # Forget the 'already emailed' mark, so turning it back on while it is still true emails again.
+        mark = db.get(AlertEmail, alert_id)
+        if mark:
+            db.delete(mark)
+    elif not body.paused and row is not None:
+        db.delete(row)
+    db.commit()
+    return alert_json(alert, body.paused)
+
+
 def evaluate_user_alerts(db: Session, user: User) -> dict:
-    """Runs every alert the user has against the latest prices. Does not write anything."""
+    """Runs every alert the user has switched on against the latest prices. Does not write anything."""
     lists = ensure_watchlists(db, user)
     by_id = {wl.id: wl for wl in lists}
     alerts = list(db.scalars(select(Alert).where(Alert.watchlist_id.in_(list(by_id)))))
+    off = paused_ids(db, [a.id for a in alerts])
+    alerts = [a for a in alerts if a.id not in off]
     hist_cache: dict = {}
     firing, problems = [], []
     for a in alerts:

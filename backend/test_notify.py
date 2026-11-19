@@ -195,6 +195,59 @@ def test_mailer_sends_a_client_name_and_shows_non_json_errors(monkeypatch):
     assert seen["ua"] == "stocksapp/1.0"
 
 
+def wl_alerts(h):
+    wid = client.get("/api/watchlists", headers=h).json()["watchlists"][0]["id"]
+    return client.get(f"/api/watchlists/{wid}/alerts", headers=h).json()["alerts"]
+
+
+def test_alerts_start_switched_on():
+    h, _ = new_user(); setup_alert(h)
+    assert wl_alerts(h)[0]["paused"] is False
+
+
+def test_paused_alert_is_not_checked_does_not_show_or_email_and_can_be_resumed():
+    h, email = new_user(); aid = setup_alert(h); turn_on(h)
+    r = client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": True})
+    assert r.status_code == 200 and r.json()["paused"] is True
+    assert wl_alerts(h)[0]["paused"] is True
+    chk = client.post("/api/alerts/check", headers=h).json()
+    assert chk["firing"] == [] and chk["checked"] == 0
+    cycle()
+    assert sent_to(email) == []
+    assert client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": False}).json()["paused"] is False
+    assert wl_alerts(h)[0]["paused"] is False
+    assert len(client.post("/api/alerts/check", headers=h).json()["firing"]) == 1
+    cycle()
+    assert len(sent_to(email)) == 1
+
+
+def test_pausing_while_firing_then_resuming_emails_again():
+    h, email = new_user(); aid = setup_alert(h); turn_on(h)
+    cycle()
+    assert len(sent_to(email)) == 1
+    client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": True})
+    client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": False})
+    cycle()
+    assert len(sent_to(email)) == 2
+
+
+def test_pausing_twice_is_fine_and_other_users_cannot_pause():
+    h, _ = new_user(); aid = setup_alert(h)
+    assert client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": True}).status_code == 200
+    assert client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": True}).status_code == 200
+    other, _ = new_user()
+    assert client.patch(f"/api/alerts/{aid}", headers=other, json={"paused": False}).status_code == 404
+    assert client.patch("/api/alerts/999999", headers=h, json={"paused": True}).status_code == 404
+    assert client.patch(f"/api/alerts/{aid}", json={"paused": True}).status_code == 401
+
+
+def test_deleting_a_paused_alert_works():
+    h, _ = new_user(); aid = setup_alert(h)
+    client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": True})
+    assert client.delete(f"/api/alerts/{aid}", headers=h).status_code == 200
+    assert wl_alerts(h) == []
+
+
 def test_email_says_when_the_alert_was_first_seen(monkeypatch):
     h, email = new_user(); setup_alert(h); turn_on(h)
     monkeypatch.setenv("ALERT_TIMEZONE", "America/Los_Angeles")
@@ -212,3 +265,12 @@ def test_fmt_time_uses_the_configured_zone_and_falls_back_to_utc(monkeypatch):
     assert notify.fmt_time(t) == "Nov 18, 10:31 PM UTC"
     monkeypatch.delenv("ALERT_TIMEZONE")
     assert notify.fmt_time(t.replace(tzinfo=None)) == "Nov 18, 10:31 PM UTC"
+
+
+def test_a_new_alert_never_inherits_a_deleted_alerts_pause():
+    h, _ = new_user(); aid = setup_alert(h)
+    client.patch(f"/api/alerts/{aid}", headers=h, json={"paused": True})
+    client.delete(f"/api/alerts/{aid}", headers=h)
+    wid = client.get("/api/watchlists", headers=h).json()["watchlists"][0]["id"]
+    new = client.post(f"/api/watchlists/{wid}/alerts", headers=h, json={"ticker": "TGT", "type": "price_above", "value": 105}).json()
+    assert wl_alerts(h)[0]["paused"] is False and new["paused"] is False

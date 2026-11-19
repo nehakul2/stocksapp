@@ -46,7 +46,7 @@ export type Peers = {
 
 export type WatchlistDto = { id: number; name: string; tickers: string[] };
 export type AlertType = "price_above" | "price_below" | "sma_cross_above" | "sma_cross_below";
-export type AlertRule = { id: number; watchlist_id: number; ticker: string; type: AlertType; value: number; label: string };
+export type AlertRule = { id: number; watchlist_id: number; ticker: string; type: AlertType; value: number; label: string; paused: boolean };
 export type Firing = { alert_id: number; watchlist_id: number; watchlist: string; ticker: string; type: AlertType; message: string; since: string | null };
 export type AlertCheck = { firing: Firing[]; unavailable: string[]; checked: number };
 export type AlertEvent = { id: number; day: string; at: string; watchlist: string; ticker: string; message: string };
@@ -112,6 +112,7 @@ export const api = {
   addAlert: (token: string, id: number, ticker: string, type: AlertType, value: number) =>
     authed<AlertRule>(`/api/watchlists/${id}/alerts`, token, "POST", { ticker, type, value }),
   deleteAlert: (token: string, alertId: number) => authed<{ ok: boolean }>(`/api/alerts/${alertId}`, token, "DELETE"),
+  pauseAlert: (token: string, alertId: number, paused: boolean) => authed<AlertRule>(`/api/alerts/${alertId}`, token, "PATCH", { paused }),
   checkAlerts: (token: string) => authed<AlertCheck>("/api/alerts/check", token, "POST"),
   alertHistory: (token: string) => authed<{ events: AlertEvent[] }>("/api/alerts/history", token),
   settings: (token: string) => authed<Settings>("/api/settings", token),
