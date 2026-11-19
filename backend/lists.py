@@ -87,6 +87,12 @@ def clean_name(raw: str) -> str:
     return name
 
 
+def name_taken(lists_: list, name: str, skip_id=None) -> bool:
+    """True if another of the person's lists already has this name, ignoring capitals."""
+    want = name.casefold()
+    return any(w.name.casefold() == want for w in lists_ if w.id != skip_id)
+
+
 def watchlist_json(db: Session, wl: Watchlist) -> dict:
     return {"id": wl.id, "name": wl.name, "tickers": tickers_of(db, wl.id)}
 
@@ -125,7 +131,10 @@ def create_watchlist(body: NameBody, user: User = Depends(auth.current_user), db
     existing = ensure_watchlists(db, user)
     if len(existing) >= MAX_WATCHLISTS:
         raise HTTPException(400, f"You can have at most {MAX_WATCHLISTS} watchlists.")
-    wl = Watchlist(user_id=user.id, name=clean_name(body.name), position=len(existing))
+    name = clean_name(body.name)
+    if name_taken(existing, name):
+        raise HTTPException(409, "You already have a watchlist with that name.")
+    wl = Watchlist(user_id=user.id, name=name, position=len(existing))
     db.add(wl)
     try:
         db.commit()
@@ -138,7 +147,10 @@ def create_watchlist(body: NameBody, user: User = Depends(auth.current_user), db
 @router.patch("/api/watchlists/{watchlist_id}")
 def rename_watchlist(watchlist_id: int, body: NameBody, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
     wl = get_owned(db, user, watchlist_id)
-    wl.name = clean_name(body.name)
+    name = clean_name(body.name)
+    if name_taken(ensure_watchlists(db, user), name, skip_id=wl.id):
+        raise HTTPException(409, "You already have a watchlist with that name.")
+    wl.name = name
     try:
         db.commit()
     except IntegrityError:

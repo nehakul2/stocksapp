@@ -1,6 +1,7 @@
 import { Link } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import ListActions from "@/components/ListActions";
 import { Card, ErrorText } from "@/components/ui";
 import { api, OverviewRow, SearchHit } from "@/lib/api";
 import { useData } from "@/lib/data";
@@ -52,6 +53,7 @@ export default function Watchlist() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { reloadLists(); refreshAlerts(); load(); }} tintColor={t.accent} />}
       ListHeaderComponent={
         <View>
+          <ListActions />
           {lists.length > 1 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               {lists.map((l) => (
