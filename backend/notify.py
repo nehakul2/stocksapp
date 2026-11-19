@@ -1,5 +1,5 @@
-"""Email alerts: the on/off setting, and a background checker that emails you once
-when one of your alerts starts firing."""
+"""Alert notifications: the email on/off setting, phone/browser push sign-up, and a
+background checker that tells you once when one of your alerts starts firing."""
 import logging
 import os
 import threading
@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 import auth
 import lists
 import mailer
-from db import AlertEmail, SessionLocal, User, UserSettings, get_db
+import push
+from db import AlertEmail, PushSubscription, SessionLocal, User, UserSettings, get_db
 
 log = logging.getLogger("notify")
 router = APIRouter()
@@ -31,6 +32,8 @@ def settings_json(db: Session, user: User) -> dict:
         "email_alerts": bool(row and row.email_alerts),
         "email_configured": mailer.configured(),
         "email_available": mailer.allowed(user.email),
+        "push_configured": push.configured(),
+        "push_devices": len(db.scalars(select(PushSubscription.id).where(PushSubscription.user_id == user.id)).all()),
     }
 
 
@@ -68,6 +71,88 @@ def test_email(user: User = Depends(auth.current_user)):
     return {"sent_to": user.email}
 
 
+# ------------------------------------------------------------------ push sign-up
+class PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushBody(BaseModel):
+    endpoint: str
+    keys: PushKeys
+
+
+class PushOff(BaseModel):
+    endpoint: str
+
+
+@router.get("/api/push/key")
+def push_key():
+    """The server's public key, which the browser needs to sign up. Null if push isn't set up."""
+    return {"public_key": push.public_key() if push.configured() else None}
+
+
+@router.post("/api/push/subscribe")
+def push_subscribe(body: PushBody, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
+    if not push.configured():
+        raise HTTPException(400, "Push notifications aren't set up on this server yet.")
+    if not body.endpoint.startswith("https://") or len(body.endpoint) > 1000:
+        raise HTTPException(400, "That doesn't look like a valid push address.")
+    row = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint))
+    if row is None:
+        row = PushSubscription(user_id=user.id, endpoint=body.endpoint, p256dh=body.keys.p256dh, auth=body.keys.auth)
+        db.add(row)
+    else:  # same device signing in as someone else, or keys refreshed
+        row.user_id, row.p256dh, row.auth = user.id, body.keys.p256dh, body.keys.auth
+    db.commit()
+    return settings_json(db, user)
+
+
+@router.post("/api/push/unsubscribe")
+def push_unsubscribe(body: PushOff, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
+    row = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint, PushSubscription.user_id == user.id))
+    if row:
+        db.delete(row)
+        db.commit()
+    return settings_json(db, user)
+
+
+def push_to_user(db: Session, user: User, message: dict) -> int:
+    """Sends to every device this user signed up. Dead subscriptions are removed.
+    Returns how many devices accepted it; raises RuntimeError if devices exist but none did."""
+    subs = list(db.scalars(select(PushSubscription).where(PushSubscription.user_id == user.id)))
+    ok, last_err = 0, None
+    for sub in subs:
+        try:
+            push.send({"endpoint": sub.endpoint, "p256dh": sub.p256dh, "auth": sub.auth}, message)
+            ok += 1
+        except push.Gone:
+            db.delete(sub)
+        except Exception as e:
+            last_err = e
+            log.warning("Push to user %s failed: %s", user.id, e)
+    db.commit()
+    if subs and not ok and last_err:
+        raise RuntimeError(str(last_err))
+    return ok
+
+
+@router.post("/api/push/test")
+def push_test(user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """Sends one test notification to every device the user signed up, and says what went wrong if it fails."""
+    if not push.configured():
+        raise HTTPException(400, "Push notifications aren't set up on this server yet.")
+    if not db.scalar(select(PushSubscription.id).where(PushSubscription.user_id == user.id)):
+        raise HTTPException(400, "No device has turned on notifications yet.")
+    try:
+        n = push_to_user(db, user, {"title": "Stock Insights", "body": "Test notification. Alerts will show up like this.", "url": "/alerts", "tag": "test"})
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    if n == 0:
+        raise HTTPException(400, "That device had expired, so it was removed. Turn notifications on again.")
+    return {"sent": n}
+
+
 # ------------------------------------------------------------------ the checker
 def fmt_time(dt) -> str:
     """'Nov 18, 2:31 PM PST' in ALERT_TIMEZONE (default UTC)."""
@@ -101,12 +186,27 @@ def email_text(firing: list, since: dict = None) -> tuple:
     return subject, body
 
 
+def push_text(firing: list) -> dict:
+    n = len(firing)
+    if n == 1:
+        body = firing[0]["message"]
+    else:
+        names = ", ".join(dict.fromkeys(f["ticker"] for f in firing))
+        body = f"{n} alerts firing: {names}"
+    return {"title": "Stock Insights alert", "body": body[:180], "url": "/alerts", "tag": "alerts"}
+
+
 def run_cycle(db: Session) -> int:
-    """One pass over everyone who turned email alerts on. Returns how many emails were sent."""
+    """One pass over everyone who wants alerts by email or push. Returns how many people were told."""
     sent = 0
-    users = db.scalars(select(User).join(UserSettings, UserSettings.user_id == User.id).where(UserSettings.email_alerts.is_(True)))
-    for user in list(users):
-        if not mailer.allowed(user.email):
+    email_users = {u.id: u for u in db.scalars(select(User).join(UserSettings, UserSettings.user_id == User.id).where(UserSettings.email_alerts.is_(True)))}
+    push_users = {}
+    if push.configured():
+        push_users = {u.id: u for u in db.scalars(select(User).join(PushSubscription, PushSubscription.user_id == User.id))}
+    for user in list({**email_users, **push_users}.values()):
+        by_email = user.id in email_users and mailer.configured() and mailer.allowed(user.email)
+        by_push = user.id in push_users
+        if not (by_email or by_push):
             continue
         try:
             result = lists.evaluate_user_alerts(db, user)
@@ -114,7 +214,7 @@ def run_cycle(db: Session) -> int:
             firing_ids = {f["alert_id"] for f in firing}
             skip = set(result["unavailable_alert_ids"])  # couldn't check: leave their state alone
 
-            # Alerts that stopped firing are forgotten, so they can email again later.
+            # Alerts that stopped firing are forgotten, so they can notify again later.
             for alert_id in result["alert_ids"]:
                 if alert_id not in firing_ids and alert_id not in skip:
                     row = db.get(AlertEmail, alert_id)
@@ -127,16 +227,36 @@ def run_cycle(db: Session) -> int:
             since = lists.log_firings(db, user, firing)
             if not new:
                 continue
-            subject, body = email_text(new, since)
-            mailer.send(user.email, subject, body)
-            print(f"[notify] Emailed user {user.id}: {len(new)} alert(s)", flush=True)
+
+            told, errors = False, []
+            if by_email:
+                try:
+                    subject, body = email_text(new, since)
+                    mailer.send(user.email, subject, body)
+                    told = True
+                    print(f"[notify] Emailed user {user.id}: {len(new)} alert(s)", flush=True)
+                except Exception as e:
+                    errors.append(e)
+                    log.warning("Alert email failed for user %s: %s", user.id, e)
+            if by_push:
+                try:
+                    if push_to_user(db, user, push_text(new)):
+                        told = True
+                        print(f"[notify] Pushed to user {user.id}: {len(new)} alert(s)", flush=True)
+                except Exception as e:
+                    errors.append(e)
+                    log.warning("Alert push failed for user %s: %s", user.id, e)
+            if not told:
+                if errors:
+                    continue  # every channel failed: try again next cycle
+                continue  # push devices were all expired; nothing to mark
             for f in new:
                 db.add(AlertEmail(alert_id=f["alert_id"]))
             db.commit()
             sent += 1
         except Exception:
             db.rollback()
-            log.exception("Alert email run failed for user %s", user.id)  # tries again next cycle
+            log.exception("Alert notification run failed for user %s", user.id)  # tries again next cycle
     return sent
 
 
@@ -145,9 +265,9 @@ _started = False
 
 def start_scheduler() -> None:
     """Starts a background thread that runs run_cycle every ALERT_EMAIL_MINUTES (default 15).
-    Does nothing if email isn't configured."""
+    Does nothing if neither email nor push is configured."""
     global _started
-    if _started or not mailer.configured():
+    if _started or not (mailer.configured() or push.configured()):
         return
     _started = True
     minutes = max(1, int(os.environ.get("ALERT_EMAIL_MINUTES", "15") or 15))
@@ -159,8 +279,8 @@ def start_scheduler() -> None:
                 with SessionLocal() as db:
                     run_cycle(db)
             except Exception:
-                log.exception("Alert email cycle crashed")
+                log.exception("Alert cycle crashed")
             time.sleep(minutes * 60)
 
-    threading.Thread(target=loop, name="alert-emails", daemon=True).start()
-    print(f"[notify] Alert email checker started (every {minutes} minutes)", flush=True)
+    threading.Thread(target=loop, name="alert-notifications", daemon=True).start()
+    print(f"[notify] Alert checker started (every {minutes} minutes)", flush=True)

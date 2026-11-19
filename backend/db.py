@@ -133,6 +133,17 @@ class AlertEmail(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class PushSubscription(Base):
+    """One browser or Home Screen app that agreed to get push notifications for a user."""
+    __tablename__ = "push_subscriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(1000), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class AiUsage(Base):
     """How many AI requests a user has made on a given day (UTC). user_id 0 is the
     shared counter for everyone, used as a global spending cap."""

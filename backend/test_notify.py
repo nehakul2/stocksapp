@@ -7,6 +7,7 @@ import api
 import core
 import mailer
 import notify
+import push
 from db import SessionLocal, init_db
 
 init_db()
@@ -14,6 +15,7 @@ client = TestClient(api.app)
 _n = [0]
 PRICES = {"TGT": [100, 110]}
 SENT = []
+PUSHED = []
 
 
 def new_user():
@@ -37,6 +39,9 @@ def patch(monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "test-key")
     monkeypatch.delenv("EMAIL_ALLOWED_TO", raising=False)
     monkeypatch.setattr(mailer, "send", lambda to, subject, text: SENT.append((to, subject, text)))
+    monkeypatch.delenv("VAPID_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("VAPID_PRIVATE_KEY", raising=False)
+    PUSHED.clear()
 
 
 def setup_alert(h, typ="price_above", value=105):
@@ -61,7 +66,8 @@ def turn_on(h):
 def test_settings_default_off_and_toggle():
     h, email = new_user()
     s = client.get("/api/settings", headers=h).json()
-    assert s == {"email": email, "email_alerts": False, "email_configured": True, "email_available": True}
+    assert s == {"email": email, "email_alerts": False, "email_configured": True, "email_available": True,
+                 "push_configured": False, "push_devices": 0}
     assert turn_on(h).json()["email_alerts"] is True
     assert client.put("/api/settings", headers=h, json={"email_alerts": False}).json()["email_alerts"] is False
 
@@ -274,3 +280,181 @@ def test_a_new_alert_never_inherits_a_deleted_alerts_pause():
     wid = client.get("/api/watchlists", headers=h).json()["watchlists"][0]["id"]
     new = client.post(f"/api/watchlists/{wid}/alerts", headers=h, json={"ticker": "TGT", "type": "price_above", "value": 105}).json()
     assert wl_alerts(h)[0]["paused"] is False and new["paused"] is False
+
+
+# ------------------------------------------------------------------ push
+def enable_push(monkeypatch):
+    pub, priv = push.generate_keys()
+    monkeypatch.setenv("VAPID_PUBLIC_KEY", pub)
+    monkeypatch.setenv("VAPID_PRIVATE_KEY", priv)
+    monkeypatch.setattr(push, "send", lambda sub, msg, ttl=0: PUSHED.append((sub["endpoint"], msg)))
+    return pub
+
+
+def device(n=1):
+    keys_pub, _ = push.generate_keys()
+    return {"endpoint": f"https://push.example.com/send/{_n[0]}-{n}", "keys": {"p256dh": keys_pub, "auth": push.b64e(b"0123456789abcdef")}}
+
+
+def test_push_key_is_null_until_configured_then_served(monkeypatch):
+    assert client.get("/api/push/key").json() == {"public_key": None}
+    pub = enable_push(monkeypatch)
+    assert client.get("/api/push/key").json() == {"public_key": pub}
+
+
+def test_subscribe_needs_login_and_setup(monkeypatch):
+    h, _ = new_user()
+    assert client.post("/api/push/subscribe", json=device()).status_code in (401, 403)
+    assert client.post("/api/push/subscribe", headers=h, json=device()).status_code == 400
+    enable_push(monkeypatch)
+    bad = device(); bad["endpoint"] = "http://insecure.example.com/x"
+    assert client.post("/api/push/subscribe", headers=h, json=bad).status_code == 400
+    r = client.post("/api/push/subscribe", headers=h, json=device())
+    assert r.status_code == 200 and r.json()["push_devices"] == 1 and r.json()["push_configured"] is True
+
+
+def test_subscribing_twice_keeps_one_row_and_unsubscribe_removes_it(monkeypatch):
+    enable_push(monkeypatch)
+    h, _ = new_user()
+    d = device()
+    client.post("/api/push/subscribe", headers=h, json=d)
+    assert client.post("/api/push/subscribe", headers=h, json=d).json()["push_devices"] == 1
+    assert client.post("/api/push/unsubscribe", headers=h, json={"endpoint": d["endpoint"]}).json()["push_devices"] == 0
+
+
+def test_cannot_remove_someone_elses_device(monkeypatch):
+    enable_push(monkeypatch)
+    h1, _ = new_user(); h2, _ = new_user()
+    d = device()
+    client.post("/api/push/subscribe", headers=h1, json=d)
+    assert client.post("/api/push/unsubscribe", headers=h2, json={"endpoint": d["endpoint"]}).status_code == 200
+    assert client.get("/api/settings", headers=h1).json()["push_devices"] == 1
+
+
+def test_push_alone_notifies_once_while_firing_even_with_email_off(monkeypatch):
+    enable_push(monkeypatch)
+    h, email = new_user()
+    client.post("/api/push/subscribe", headers=h, json=device())
+    setup_alert(h)
+    assert cycle() == 1
+    assert len(PUSHED) == 1 and "TGT" in PUSHED[0][1]["body"] and PUSHED[0][1]["url"] == "/alerts"
+    assert sent_to(email) == []
+    assert cycle() == 0 and len(PUSHED) == 1
+    PRICES["TGT"] = [100, 100]
+    cycle()
+    PRICES["TGT"] = [100, 110]
+    cycle()
+    assert len(PUSHED) == 2
+
+
+def test_email_and_push_both_go_out_once(monkeypatch):
+    enable_push(monkeypatch)
+    h, email = new_user()
+    turn_on(h)
+    client.post("/api/push/subscribe", headers=h, json=device())
+    setup_alert(h)
+    assert cycle() == 1
+    assert len(sent_to(email)) == 1 and len(PUSHED) == 1
+    assert cycle() == 0 and len(sent_to(email)) == 1 and len(PUSHED) == 1
+
+
+def test_push_failure_is_retried_but_email_success_is_not_repeated(monkeypatch):
+    enable_push(monkeypatch)
+    h, email = new_user()
+    client.post("/api/push/subscribe", headers=h, json=device())
+    setup_alert(h)
+    monkeypatch.setattr(push, "send", lambda sub, msg, ttl=0: (_ for _ in ()).throw(RuntimeError("push down")))
+    assert cycle() == 0
+    monkeypatch.setattr(push, "send", lambda sub, msg, ttl=0: PUSHED.append((sub["endpoint"], msg)))
+    assert cycle() == 1 and len(PUSHED) == 1
+
+
+def test_expired_device_is_removed(monkeypatch):
+    enable_push(monkeypatch)
+    h, _ = new_user()
+    client.post("/api/push/subscribe", headers=h, json=device())
+    setup_alert(h)
+    monkeypatch.setattr(push, "send", lambda sub, msg, ttl=0: (_ for _ in ()).throw(push.Gone("410")))
+    cycle()
+    assert client.get("/api/settings", headers=h).json()["push_devices"] == 0
+
+
+def test_push_test_endpoint(monkeypatch):
+    h, _ = new_user()
+    assert client.post("/api/push/test", headers=h).status_code == 400  # not set up
+    enable_push(monkeypatch)
+    assert client.post("/api/push/test", headers=h).status_code == 400  # no device
+    client.post("/api/push/subscribe", headers=h, json=device())
+    assert client.post("/api/push/test", headers=h).json() == {"sent": 1}
+    monkeypatch.setattr(push, "send", lambda sub, msg, ttl=0: (_ for _ in ()).throw(RuntimeError("Push service said no (403): bad")))
+    r = client.post("/api/push/test", headers=h)
+    assert r.status_code == 502 and "403" in r.json()["detail"]
+
+
+def test_scheduler_starts_for_push_only(monkeypatch):
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    started = []
+    monkeypatch.setattr(notify.threading, "Thread", lambda **kw: type("T", (), {"start": lambda self: started.append(1)})())
+    monkeypatch.setattr(notify, "_started", False)
+    notify.start_scheduler()
+    assert started == []
+    enable_push(monkeypatch)
+    notify.start_scheduler()
+    assert started == [1]
+
+
+def test_push_text_summarises_several_alerts():
+    one = notify.push_text([{"ticker": "TGT", "message": "TGT: price above 105"}])
+    assert one["body"] == "TGT: price above 105"
+    many = notify.push_text([{"ticker": "TGT", "message": "a"}, {"ticker": "NEM", "message": "b"}, {"ticker": "TGT", "message": "c"}])
+    assert many["body"] == "3 alerts firing: TGT, NEM"
+
+
+# ------------------------------------------------------------------ the encryption itself
+def _decrypt(body: bytes, ua_private, auth_secret: bytes) -> bytes:
+    """An independent reader for the aes128gcm format, written from RFC 8188/8291 to check push.encrypt."""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    salt, rs, idlen = body[:16], int.from_bytes(body[16:20], "big"), body[20]
+    as_public, cipher = body[21:21 + idlen], body[21 + idlen:]
+    assert rs == 4096 and idlen == 65
+    ua_public = ua_private.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    shared = ua_private.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), as_public))
+    ikm = HKDF(hashes.SHA256(), 32, auth_secret, b"WebPush: info\x00" + ua_public + as_public).derive(shared)
+    cek = HKDF(hashes.SHA256(), 16, salt, b"Content-Encoding: aes128gcm\x00").derive(ikm)
+    nonce = HKDF(hashes.SHA256(), 12, salt, b"Content-Encoding: nonce\x00").derive(ikm)
+    plain = AESGCM(cek).decrypt(nonce, cipher, None)
+    assert plain.endswith(b"\x02")
+    return plain[:-1]
+
+
+def test_encrypted_message_can_be_read_by_the_receiving_device():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    ua = ec.generate_private_key(ec.SECP256R1())
+    ua_pub = ua.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    auth = b"sixteen byte key"
+    body = push.encrypt(b'{"title":"hi"}', push.b64e(ua_pub), push.b64e(auth))
+    assert _decrypt(body, ua, auth) == b'{"title":"hi"}'
+    assert push.encrypt(b"same", push.b64e(ua_pub), push.b64e(auth)) != push.encrypt(b"same", push.b64e(ua_pub), push.b64e(auth))
+
+
+def test_vapid_header_is_a_signed_token_for_the_push_service(monkeypatch):
+    import jwt
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    pub = enable_push(monkeypatch)
+    monkeypatch.setenv("VAPID_SUBJECT", "mailto:me@example.com")
+    h = push.vapid_headers("https://web.push.apple.com/abc123")["Authorization"]
+    assert h.startswith("vapid t=") and h.endswith(f"k={pub}")
+    token = h[len("vapid t="):].split(",")[0]
+    key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), push.b64d(pub))
+    claims = jwt.decode(token, key, algorithms=["ES256"], audience="https://web.push.apple.com")
+    assert claims["sub"] == "mailto:me@example.com" and claims["exp"] > __import__("time").time()
+
+
+def test_generated_keys_have_the_standard_shape():
+    pub, priv = push.generate_keys()
+    assert len(push.b64d(pub)) == 65 and push.b64d(pub)[0] == 4 and len(push.b64d(priv)) == 32
