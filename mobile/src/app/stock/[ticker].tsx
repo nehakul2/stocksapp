@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Link, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import AlertRules from "@/components/AlertRules";
@@ -65,6 +65,12 @@ export default function StockScreen() {
         <Text style={{ color, fontSize: 18, fontWeight: "600", marginLeft: 12 }}>{pct == null ? "" : `${pct > 0 ? "▲" : pct < 0 ? "▼" : "–"} ${fmtSigned(pct, 2, "%")}`}</Text>
       </View>
       <Text style={{ color: t.muted, marginTop: 4 }}>52-week range {fmtNum(s.low_52wk)} to {fmtNum(s.high_52wk)} · Next earnings {earningsLabel(detail.next_earnings)}</Text>
+
+      <Link href={{ pathname: "/chat", params: { ticker: s.ticker } }} asChild>
+        <Pressable accessibilityRole="button" style={{ marginTop: 14, alignSelf: "flex-start", backgroundColor: t.wash, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 }}>
+          <Text style={{ color: t.accent, fontWeight: "600" }}>Ask about {s.ticker}</Text>
+        </Pressable>
+      </Link>
 
       <Heading>Why it moved</Heading>
       {notes.length > 0 ? <Card>{notes.map((n, i) => <Text key={i} style={{ color: t.ink, lineHeight: 21, marginTop: i ? 8 : 0 }}>{n}</Text>)}</Card> : <Text style={{ color: t.muted }}>No big move today.</Text>}

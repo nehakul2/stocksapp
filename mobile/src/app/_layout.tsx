@@ -16,6 +16,7 @@ function Routes() {
       <Stack.Protected guard={!!token}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="stock/[ticker]" options={{ title: "", headerBackTitle: "Back" }} />
+        <Stack.Screen name="chat" options={{ headerBackTitle: "Back" }} />
       </Stack.Protected>
       <Stack.Protected guard={!token}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
