@@ -54,6 +54,12 @@ export type Fundamentals = {
 };
 export type RiskReply = { ticker: string; risk: RiskInfo | null; fundamentals: Fundamentals | null };
 
+export type Idea = {
+  ticker: string; action: "buy" | "hold" | "sell"; strength: "weak" | "moderate" | "strong"; score: number; price: number;
+  reasons: string[]; against: string[]; cautions: string[];
+};
+export type Ideas = { items: Idea[]; unavailable: string[]; disclaimer: string };
+
 export type WatchlistDto = { id: number; name: string; tickers: string[] };
 export type AlertType = "price_above" | "price_below" | "sma_cross_above" | "sma_cross_below";
 export type AlertRule = { id: number; watchlist_id: number; ticker: string; type: AlertType; value: number; label: string; paused: boolean };
@@ -113,6 +119,7 @@ export const api = {
   detail: (t: string, range: string) => get<Detail>(`/api/stocks/${sym(t)}?range=${range}`),
   history: (t: string, range: string) => get<{ bars: Bar[] }>(`/api/stocks/${sym(t)}/history?range=${range}`),
   peers: (t: string) => get<Peers>(`/api/stocks/${sym(t)}/peers`),
+  suggestions: (t: string[]) => get<Ideas>(`/api/suggestions?tickers=${list(t)}`),
   risk: (t: string) => get<RiskReply>(`/api/stocks/${sym(t)}/risk`),
   watchlists: (token: string) => authed<{ watchlists: WatchlistDto[] }>("/api/watchlists", token),
   createWatchlist: (token: string, name: string) => authed<WatchlistDto>("/api/watchlists", token, "POST", { name }),

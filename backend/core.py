@@ -809,3 +809,95 @@ def generate_ai_move_summary(api_key: str, ticker: str, explanation: dict) -> st
     return message.content[0].text.strip()
 
 
+# ------------------------------------------------------------------ buy / hold / sell ideas
+SUGGEST_DISCLAIMER = (
+    "These are ideas from simple price-trend rules, not advice. They can't see news, earnings or your own "
+    "situation, and the market can do the opposite. Use your own judgment."
+)
+
+
+def _rsi(close: pd.Series, n: int = 14):
+    delta = close.diff().iloc[-(n + 1):]
+    gains, losses = delta.clip(lower=0).mean(), (-delta.clip(upper=0)).mean()
+    if not losses or losses <= 0:
+        return None
+    return float(100 - 100 / (1 + gains / losses))
+
+
+@st_cache(900)
+def suggest(ticker: str) -> dict:
+    """A plain buy / hold / sell idea for one stock from price trend, momentum and stretch.
+    Every point added or taken away comes with its reason, so the label can be checked.
+    Raises ValueError when there isn't enough history."""
+    t = ticker.upper()
+    hist = add_smas(fetch_history(t, "2y"))
+    close = hist["Close"].dropna()
+    if len(close) < 210:
+        raise ValueError("Not enough price history for an idea.")
+    last = float(close.iloc[-1])
+    sma50, sma200 = float(hist["SMA_50"].iloc[-1]), float(hist["SMA_200"].iloc[-1])
+    score, good, bad, cautions = 0, [], [], []
+
+    # Long-term trend: the 200-day average counts most.
+    if last > sma200:
+        score += 2; good.append(f"Price is above its 200-day average ({(last / sma200 - 1) * 100:+.0f}%), a sign of a healthy long-term uptrend.")
+    else:
+        score -= 2; bad.append(f"Price is below its 200-day average ({(last / sma200 - 1) * 100:+.0f}%), a sign the long-term trend is weak.")
+    if sma50 > sma200:
+        score += 1; good.append("The 50-day average is above the 200-day average.")
+    else:
+        score -= 1; bad.append("The 50-day average is below the 200-day average.")
+    if last > sma50:
+        score += 1; good.append("Price is above its 50-day average, so the recent trend is up.")
+    else:
+        score -= 1; bad.append("Price is below its 50-day average, so the recent trend is down.")
+
+    # Momentum over about three months.
+    ret3 = float(last / close.iloc[-64] - 1) * 100 if len(close) > 64 else 0.0
+    if ret3 >= 10:
+        score += 1; good.append(f"Up {ret3:.0f}% over the past three months.")
+    elif ret3 <= -10:
+        score -= 1; bad.append(f"Down {abs(ret3):.0f}% over the past three months.")
+
+    # Stretch: a stock that has run too far, too fast often cools off; a heavy selloff sometimes bounces.
+    rsi = _rsi(close)
+    if rsi is not None:
+        if rsi >= 75:
+            score -= 1; cautions.append(f"RSI is {rsi:.0f}, which means it has risen very fast lately. Moves like that often cool off.")
+        elif rsi <= 30:
+            score += 1; cautions.append(f"RSI is {rsi:.0f}, which means it has fallen very fast lately. It can bounce, or keep falling; check why.")
+
+    high = float(close.tail(252).max())
+    if last >= high * 0.98:
+        cautions.append("It is at the top of its one-year range, so there is less room before the old high.")
+    elif last <= high * 0.7:
+        cautions.append(f"It is {(1 - last / high) * 100:.0f}% below its one-year high.")
+
+    try:
+        r = risk_stats(t)
+        if r["label"] == "more volatile than the market":
+            cautions.append(f"Its price swings more than the market ({r['volatility_pct']:.0f}% a year), so expect bigger ups and downs.")
+    except Exception:
+        pass
+    try:
+        earn = get_next_earnings_date(t)
+        if earn:
+            days = (datetime.strptime(earn, "%Y-%m-%d").date() - datetime.now().date()).days
+            if 0 <= days <= 7:
+                cautions.append(f"Earnings are due {'today' if days == 0 else f'in {days} days'} ({earn}). Results can move the price a lot either way.")
+    except Exception:
+        pass
+
+    if score >= 3:
+        action = "buy"
+    elif score <= -3:
+        action = "sell"
+    else:
+        action = "hold"
+    strength = "strong" if abs(score) >= 5 else ("moderate" if abs(score) >= 3 else "weak")
+    return {
+        "ticker": t, "action": action, "strength": strength, "score": score, "price": round(last, 2),
+        "reasons": (good if score > 0 else bad if score < 0 else good + bad),
+        "against": (bad if score > 0 else good if score < 0 else []),
+        "cautions": cautions,
+    }

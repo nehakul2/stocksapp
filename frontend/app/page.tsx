@@ -2,6 +2,7 @@
 import Link from "next/link";
 import ListSwitcher from "@/components/ListSwitcher";
 import Sparkline from "@/components/Sparkline";
+import Suggestions from "@/components/Suggestions";
 import { useAlerts } from "@/lib/alerts";
 import { useCallback, useEffect, useState } from "react";
 import { api, AttentionItem, OverviewRow, SMA_WINDOWS } from "@/lib/api";
@@ -113,6 +114,8 @@ export default function Home() {
           </ul>
         )}
       </section>
+
+      <Suggestions />
 
       <section className="section" aria-labelledby="watch-h">
         <h2 id="watch-h">Watchlist</h2>

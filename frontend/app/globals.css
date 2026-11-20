@@ -363,3 +363,20 @@ main { padding-bottom: 96px; }
   .chatpanel { right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; }
   .chatfab { right: 14px; bottom: 14px; }
 }
+
+.saveerr { display: flex; gap: 16px; align-items: baseline; justify-content: center; flex-wrap: wrap; padding: 10px 16px; background: color-mix(in srgb, var(--down) 12%, var(--bg)); color: var(--down); border-bottom: 1px solid color-mix(in srgb, var(--down) 35%, transparent); }
+
+/* buy / hold / sell ideas */
+.ideas { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.ideas li { display: grid; grid-template-columns: 80px max-content 1fr; gap: 12px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.ideas .tk { font-weight: 700; text-decoration: none; }
+.ideas .muted { font-size: 0.9375rem; }
+.ideas .tag, .take .tag { margin-top: 0; white-space: nowrap; border: 1px solid currentColor; justify-self: start; }
+.tag.idea-buy { color: var(--up); }
+.tag.idea-sell { color: var(--down); }
+.tag.idea-hold { color: var(--ink-2); }
+.take { display: grid; gap: 14px; }
+.take .why { margin: 0; padding-left: 18px; font-size: 0.9375rem; line-height: 1.5; }
+@media (max-width: 640px) {
+  .ideas li { grid-template-columns: 1fr; gap: 4px; }
+}

@@ -54,6 +54,12 @@ export type Fundamentals = {
 };
 export type RiskReply = { ticker: string; risk: RiskInfo | null; fundamentals: Fundamentals | null };
 
+export type Idea = {
+  ticker: string; action: "buy" | "hold" | "sell"; strength: "weak" | "moderate" | "strong"; score: number; price: number;
+  reasons: string[]; against: string[]; cautions: string[];
+};
+export type Ideas = { items: Idea[]; unavailable: string[]; disclaimer: string };
+
 export type WatchlistDto = { id: number; name: string; tickers: string[] };
 export type AlertType = "price_above" | "price_below" | "sma_cross_above" | "sma_cross_below";
 export type AlertRule = { id: number; watchlist_id: number; ticker: string; type: AlertType; value: number; label: string; paused: boolean };
@@ -61,7 +67,10 @@ export type Firing = { alert_id: number; watchlist_id: number; watchlist: string
 export type AlertCheck = { firing: Firing[]; unavailable: string[]; checked: number };
 export type AlertEvent = { id: number; day: string; at: string; watchlist: string; ticker: string; message: string };
 
-export type Settings = { email: string; email_alerts: boolean; email_configured: boolean; email_available: boolean };
+export type Settings = {
+  email: string; email_alerts: boolean; email_configured: boolean; email_available: boolean;
+  push_configured: boolean; push_devices: number;
+};
 
 export type ChatAction = {
   type: "create_list" | "add_to_list" | "remove_from_list" | "rename_list";
@@ -113,6 +122,9 @@ export const api = {
   detail: (t: string, range: string) => get<Detail>(`/api/stocks/${sym(t)}?range=${range}`),
   history: (t: string, range: string) => get<{ bars: Bar[] }>(`/api/stocks/${sym(t)}/history?range=${range}`),
   peers: (t: string) => get<Peers>(`/api/stocks/${sym(t)}/peers`),
+  suggestions: (t: string[]) => get<Ideas>(`/api/suggestions?tickers=${list(t)}`),
+  suggestionSummary: (token: string, id: number) =>
+    authed<{ summary: string; usage: { used: number; limit: number } }>(`/api/watchlists/${id}/suggestions/summary`, token, "POST"),
   risk: (t: string) => get<RiskReply>(`/api/stocks/${sym(t)}/risk`),
   watchlists: (token: string) => authed<{ watchlists: WatchlistDto[] }>("/api/watchlists", token),
   createWatchlist: (token: string, name: string) => authed<WatchlistDto>("/api/watchlists", token, "POST", { name }),
@@ -130,6 +142,11 @@ export const api = {
   saveSettings: (token: string, email_alerts: boolean) => authed<Settings>("/api/settings", token, "PUT", { email_alerts }),
   chat: (token: string, question: string, history: ChatTurn[], ticker?: string) =>
     authed<ChatReply>("/api/chat", token, "POST", { question, history, ticker: ticker ?? null }),
+  pushKey: () => get<{ public_key: string | null }>("/api/push/key"),
+  pushSubscribe: (token: string, sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    authed<Settings>("/api/push/subscribe", token, "POST", sub),
+  pushUnsubscribe: (token: string, endpoint: string) => authed<Settings>("/api/push/unsubscribe", token, "POST", { endpoint }),
+  pushTest: (token: string) => authed<{ sent: number }>("/api/push/test", token, "POST"),
   testEmail: (token: string) => authed<{ sent_to: string }>("/api/settings/test-email", token, "POST"),
   clearAlertHistory: (token: string) => authed<{ ok: boolean }>("/api/alerts/history", token, "DELETE"),
   exportUrl: (t: string, start: string, end: string) => `${API}/api/stocks/${sym(t)}/export.csv?start=${start}&end=${end}`,
