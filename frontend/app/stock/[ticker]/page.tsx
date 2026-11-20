@@ -4,8 +4,9 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import AlertsPanel from "@/components/AlertsPanel";
 import PriceChart, { ChartType, SMA_VARS } from "@/components/PriceChart";
-import { AiResult, AiUsage, api, Bar, Detail, Peers, RiskReply, SMA_WINDOWS } from "@/lib/api";
+import { AiResult, AiUsage, api, Bar, Detail, Idea, Peers, RiskReply, SMA_WINDOWS } from "@/lib/api";
 import { arrow, daysUntil, dirOf, earningsLabel, fmtDate, fmtNum, fmtSigned, venue, fmtBig } from "@/lib/format";
+import { ideaText } from "@/lib/ideas";
 import { useAuth } from "@/lib/auth";
 import { useWatchlist } from "@/lib/watchlist";
 
@@ -51,6 +52,18 @@ export default function StockPage() {
   const [peersState, setPeersState] = useState<"loading" | "ok" | "none">("loading");
   const [riskData, setRiskData] = useState<RiskReply | null>(null);
   const [riskState, setRiskState] = useState<"loading" | "ok" | "none">("loading");
+  const [idea, setIdea] = useState<Idea | null>(null);
+  const [ideaState, setIdeaState] = useState<"loading" | "ok" | "none">("loading");
+  const [ideaNote, setIdeaNote] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setIdea(null); setIdeaState("loading");
+    api.suggestions([ticker])
+      .then((d) => { if (cancelled) return; setIdeaNote(d.disclaimer); if (d.items[0]) { setIdea(d.items[0]); setIdeaState("ok"); } else setIdeaState("none"); })
+      .catch(() => { if (!cancelled) setIdeaState("none"); });
+    return () => { cancelled = true; };
+  }, [ticker]);
 
   const { token } = useAuth();
   const [ai, setAi] = useState<AiResult | null>(null);
@@ -284,6 +297,36 @@ export default function StockPage() {
             )}
           </>
         )}
+      </section>
+
+      <section className="section" aria-label="Our take">
+        <h2>Our take</h2>
+        {ideaState === "loading" && <p className="skel">Reading the trend&hellip;</p>}
+        {ideaState === "none" && <p className="fine">No idea for this one: not enough price history, or the data didn&rsquo;t load.</p>}
+        {ideaState === "ok" && idea && (
+          <div className="take">
+            <p style={{ margin: 0 }}><span className={`tag idea-${idea.action}`}>{ideaText(idea)}</span></p>
+            {idea.reasons.length > 0 && (
+              <div>
+                <h3>Why</h3>
+                <ul className="why">{idea.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+              </div>
+            )}
+            {idea.against.length > 0 && (
+              <div>
+                <h3>Pointing the other way</h3>
+                <ul className="why">{idea.against.map((r, i) => <li key={i}>{r}</li>)}</ul>
+              </div>
+            )}
+            {idea.cautions.length > 0 && (
+              <div>
+                <h3>Be careful about</h3>
+                <ul className="why">{idea.cautions.map((r, i) => <li key={i}>{r}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="fine">{ideaNote || "These are ideas from simple price-trend rules, not advice. Use your own judgment."}</p>
       </section>
 
       <section className="section" aria-label="Risk and basics">

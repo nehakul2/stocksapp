@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import ListActions from "@/components/ListActions";
 import { Card, ErrorText } from "@/components/ui";
-import { api, OverviewRow, SearchHit } from "@/lib/api";
+import { api, Idea, OverviewRow, SearchHit } from "@/lib/api";
 import { useData } from "@/lib/data";
 import { fmtNum, fmtSigned } from "@/lib/format";
+import { ideaText } from "@/lib/ideas";
 import { useTheme } from "@/lib/theme";
 
 function dayChange(r: OverviewRow): number | null {
@@ -21,6 +22,7 @@ export default function Watchlist() {
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [ideas, setIdeas] = useState<Map<string, Idea>>(new Map());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -32,6 +34,16 @@ export default function Watchlist() {
   }, [tickers]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Buy / hold / sell ideas load separately, so a slow one never delays the prices.
+  useEffect(() => {
+    if (tickers.length === 0) { setIdeas(new Map()); return; }
+    let cancelled = false;
+    api.suggestions(tickers)
+      .then((d) => { if (!cancelled) setIdeas(new Map(d.items.map((i) => [i.ticker, i] as const))); })
+      .catch(() => { if (!cancelled) setIdeas(new Map()); });
+    return () => { cancelled = true; };
+  }, [tickers]);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -101,6 +113,11 @@ export default function Watchlist() {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: t.ink, fontSize: 17, fontWeight: "700" }}>{item}</Text>
                 {r?.error ? <Text style={{ color: t.down, fontSize: 12 }}>No data right now</Text> : null}
+                {ideas.get(item) ? (
+                  <Text style={{ fontSize: 12, fontWeight: "600", marginTop: 2, color: ideas.get(item)!.action === "buy" ? t.up : ideas.get(item)!.action === "sell" ? t.down : t.muted }}>
+                    {ideaText(ideas.get(item)!)}
+                  </Text>
+                ) : null}
               </View>
               <View style={{ alignItems: "flex-end" }}>
                 <Text style={{ color: t.ink, fontSize: 17, fontVariant: ["tabular-nums"] }}>{r ? fmtNum(r.close) : "…"}</Text>
@@ -110,7 +127,7 @@ export default function Watchlist() {
           </Link>
         );
       }}
-      ListFooterComponent={<Text style={{ color: t.muted, fontSize: 12, marginTop: 14, textAlign: "center" }}>{tickers.length > 0 ? "Pull down to refresh. Press and hold a stock to remove it." : ""}</Text>}
+      ListFooterComponent={<Text style={{ color: t.muted, fontSize: 12, marginTop: 14, textAlign: "center" }}>{tickers.length > 0 ? "Pull down to refresh. Press and hold a stock to remove it.\nIdeas come from simple price-trend rules, not advice. Open a stock to see why." : ""}</Text>}
     />
   );
 }

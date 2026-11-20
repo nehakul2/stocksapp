@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import AlertRules from "@/components/AlertRules";
 import { Button, Card, ErrorText, Heading } from "@/components/ui";
-import { AiResult, AiUsage, api, Detail, Peers, RiskReply } from "@/lib/api";
+import { AiResult, AiUsage, api, Detail, Idea, Peers, RiskReply } from "@/lib/api";
+import { ideaText } from "@/lib/ideas";
 import { useAuth } from "@/lib/auth";
 import { earningsLabel, fmtBig, fmtNum, fmtSigned } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
@@ -16,6 +17,8 @@ export default function StockScreen() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [peers, setPeers] = useState<Peers | null>(null);
   const [riskData, setRiskData] = useState<RiskReply | null>(null);
+  const [idea, setIdea] = useState<Idea | null>(null);
+  const [ideaNote, setIdeaNote] = useState("");
   const [ai, setAi] = useState<AiResult | null>(null);
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [err, setErr] = useState("");
@@ -28,6 +31,7 @@ export default function StockScreen() {
     catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load this stock."); }
     api.peers(ticker).then(setPeers).catch(() => setPeers(null));
     api.risk(ticker).then(setRiskData).catch(() => setRiskData(null));
+    api.suggestions([ticker]).then((d) => { setIdea(d.items[0] ?? null); setIdeaNote(d.disclaimer); }).catch(() => setIdea(null));
   }, [ticker]);
 
   useEffect(() => { load(); }, [load]);
@@ -112,6 +116,24 @@ export default function StockScreen() {
                 <Text style={{ width: 70, textAlign: "right", color: !r.month_pct ? t.muted : r.month_pct > 0 ? t.up : t.down, fontVariant: ["tabular-nums"] }}>{fmtSigned(r.month_pct, 1, "%")}</Text>
               </View>
             ))}
+          </Card>
+        </>
+      )}
+
+      {idea && (
+        <>
+          <Heading>Our take</Heading>
+          <Card>
+            <Text style={{ fontWeight: "700", fontSize: 16, color: idea.action === "buy" ? t.up : idea.action === "sell" ? t.down : t.ink2 }}>{ideaText(idea)}</Text>
+            {([["Why", idea.reasons], ["Pointing the other way", idea.against], ["Be careful about", idea.cautions]] as [string, string[]][])
+              .filter(([, items]) => items.length > 0)
+              .map(([title, items]) => (
+                <View key={title} style={{ marginTop: 12 }}>
+                  <Text style={{ color: t.ink, fontWeight: "700", marginBottom: 4 }}>{title}</Text>
+                  {items.map((x, i) => <Text key={i} style={{ color: t.ink2, lineHeight: 21, marginTop: i ? 4 : 0 }}>{"• "}{x}</Text>)}
+                </View>
+              ))}
+            <Text style={{ color: t.muted, fontSize: 12, marginTop: 12 }}>{ideaNote}</Text>
           </Card>
         </>
       )}

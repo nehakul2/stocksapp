@@ -31,6 +31,7 @@ import core
 from db import User, get_db, init_db
 import chat
 import notify
+import suggest
 from lists import router as lists_router
 
 @asynccontextmanager
@@ -65,6 +66,7 @@ app.add_middleware(
 app.include_router(lists_router)
 app.include_router(notify.router)
 app.include_router(chat.router)
+app.include_router(suggest.router)
 
 
 # Same ranges as the Streamlit app: (data to fetch, days of chart to show)
