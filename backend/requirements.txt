@@ -10,3 +10,4 @@ sqlalchemy
 psycopg[binary]
 pyjwt
 python-dotenv
+cryptography

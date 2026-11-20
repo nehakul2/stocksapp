@@ -20,11 +20,8 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
-import jwt
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+# The cryptography and jwt packages are imported inside the functions that need them, so the
+# server still starts (with push switched off) if they are ever missing.
 
 
 class Gone(Exception):
@@ -50,6 +47,8 @@ def configured() -> bool:
 
 def generate_keys() -> tuple:
     """Returns (public, private) as URL-safe strings, ready to paste into the settings."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
     key = ec.generate_private_key(ec.SECP256R1())
     private = key.private_numbers().private_value.to_bytes(32, "big")
     public = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
@@ -57,12 +56,14 @@ def generate_keys() -> tuple:
 
 
 def _private_key():
+    from cryptography.hazmat.primitives.asymmetric import ec
     value = int.from_bytes(b64d(os.environ["VAPID_PRIVATE_KEY"]), "big")
     return ec.derive_private_key(value, ec.SECP256R1())
 
 
 def vapid_headers(endpoint: str) -> dict:
     """The Authorization header that proves the message comes from this server."""
+    import jwt
     u = urlparse(endpoint)
     claims = {
         "aud": f"{u.scheme}://{u.netloc}",
@@ -76,6 +77,10 @@ def vapid_headers(endpoint: str) -> dict:
 def encrypt(payload: bytes, p256dh: str, auth: str, *, _salt: bytes = None, _eph=None) -> bytes:
     """Encrypts a message for one subscription (RFC 8291, aes128gcm). The result is the
     whole request body. The two underscore arguments exist only so tests can pin the randomness."""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     ua_public = b64d(p256dh)
     auth_secret = b64d(auth)
     eph = _eph or ec.generate_private_key(ec.SECP256R1())
